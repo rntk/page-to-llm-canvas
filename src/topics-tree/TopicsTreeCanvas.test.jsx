@@ -465,8 +465,20 @@ it('scales topic and source-card titles on zoom-out with larger caps for higher-
   }
 });
 
-it('hides inactive overview controls from tab order, preserves card move/resize drags, and avoids mutating sibling nodes during drags', () => {
+it('shows enlarged overview titles above summaries and keeps card move and resize available', () => {
   vi.stubGlobal('matchMedia', () => ({ matches: true }));
+  let resizeTopics;
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(callback) {
+        resizeTopics = callback;
+      }
+      observe() {}
+      disconnect() {}
+    },
+  );
+  let topicHeight = 100;
   const widthSpy = vi
     .spyOn(HTMLElement.prototype, 'offsetWidth', 'get')
     .mockImplementation(function () {
@@ -478,7 +490,7 @@ it('hides inactive overview controls from tab order, preserves card move/resize 
     .spyOn(HTMLElement.prototype, 'offsetHeight', 'get')
     .mockImplementation(function () {
       if (this.classList?.contains('tt-card')) return 220;
-      if (this.classList?.contains('tt-node')) return 100;
+      if (this.classList?.contains('tt-node')) return topicHeight;
       return 0;
     });
   const tree = buildSummaryTreeDisplayTree(
@@ -553,15 +565,29 @@ it('hides inactive overview controls from tab order, preserves card move/resize 
       expect(titleStyle.borderBottomColor).toBe('transparent');
     }
 
-    // Hidden controls inside overview nodes/cards are visibility: hidden (out of tab order),
-    // while topic titles are not visibility-hidden (keeping their accessible name) and card resize stays active.
+    // Summaries and their toggles stay available, while hidden controls leave the tab order.
     const rootTitleStyle = getComputedStyle(rootNode.querySelector('.tt-node__title'));
     expect(rootTitleStyle.visibility).not.toBe('hidden');
     expect(rootTitleStyle.opacity).toBe('0');
+    const overviewTitle = rootNode.querySelector('.tt-node__zoom-title');
+    expect(getComputedStyle(overviewTitle).display).toBe('block');
+    expect(getComputedStyle(overviewTitle).position).toBe('relative');
+    const rootY = rootNode.style.getPropertyValue('--tt-y');
+    topicHeight = 140;
+    act(() => resizeTopics());
+    expect(rootNode.style.getPropertyValue('--tt-y')).not.toBe(rootY);
+    const rootSummary = rootNode.querySelector('.tt-node__prose');
+    expect(rootSummary.textContent).toBe('Shared summary.');
+    expect(rootSummary.hidden).toBe(false);
+    expect(getComputedStyle(rootSummary).visibility).not.toBe('hidden');
     expect(getComputedStyle(rootNode.querySelector('.tt-node__meta')).visibility).toBe('hidden');
-    expect(getComputedStyle(branchNode.querySelector('.tt-node__summary-toggle')).visibility).toBe(
-      'hidden',
-    );
+    const summaryToggle = branchNode.querySelector('.tt-node__summary-toggle button');
+    const branchSummary = branchNode.querySelector('.tt-node__prose');
+    expect(getComputedStyle(summaryToggle).visibility).not.toBe('hidden');
+    expect(branchSummary.hidden).toBe(true);
+    act(() => summaryToggle.click());
+    expect(branchSummary.hidden).toBe(false);
+    expect(getComputedStyle(branchSummary).visibility).not.toBe('hidden');
     expect(getComputedStyle(card.querySelector('.tt-card__body')).visibility).toBe('hidden');
     const resizeHandle = card.querySelector('.tt-card__resize');
     expect(getComputedStyle(resizeHandle).visibility).not.toBe('hidden');

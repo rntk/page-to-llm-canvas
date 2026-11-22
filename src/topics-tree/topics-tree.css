@@ -367,8 +367,11 @@
   gap: var(--th-space-1) var(--th-space-2);
 }
 
-/* Overview title shown only when zoomed out: stays out of layout flow so 1:1
-   DOM size measurement never shifts while zooming or unfolding. */
+/* Title-only topics center the overview label in their measured slot. */
+.tt-node__zoom-label {
+  display: contents;
+}
+
 .tt-node__zoom-title {
   position: absolute;
   top: 50%;
@@ -447,16 +450,12 @@
   outline-offset: 2px;
 }
 
-/* Keep the plain title in the accessibility tree for the topic button's
-   accessible name, while visibility: hidden takes interactive meta/summary
-   controls out of keyboard tab order without altering 1:1 measurements. */
+/* The plain title still supplies the accessible name and intrinsic width. */
 .tt-stage.is-title-zoomed .tt-node__title {
   opacity: 0;
   pointer-events: none;
 }
 
-.tt-stage.is-title-zoomed .tt-node__summary-toggle,
-.tt-stage.is-title-zoomed .tt-node__prose,
 .tt-stage.is-title-zoomed .tt-node__meta {
   visibility: hidden;
   pointer-events: none;
@@ -464,6 +463,26 @@
 
 .tt-stage.is-title-zoomed .tt-node__zoom-title {
   display: block;
+}
+
+/* Reserve vertical space for the enlarged title above the summary, while
+   keeping the measured column width independent of that title's contents. */
+.tt-stage.is-title-zoomed .tt-node:has(.tt-node__prose) .tt-node__title {
+  height: 0;
+  overflow: hidden;
+}
+
+.tt-stage.is-title-zoomed .tt-node:has(.tt-node__prose) .tt-node__zoom-label {
+  display: block;
+  contain: inline-size;
+}
+
+.tt-stage.is-title-zoomed .tt-node:has(.tt-node__prose) .tt-node__zoom-title {
+  position: relative;
+  top: auto;
+  left: calc(-3px - var(--th-space-4, 0px));
+  width: calc(var(--tt-node-width, 100%) * var(--tt-container-zoom, 1));
+  transform: none;
 }
 
 /* ---------- leaf cards ---------- */

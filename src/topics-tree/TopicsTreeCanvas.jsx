@@ -54,6 +54,12 @@ function sameSizes(a, b) {
   return true;
 }
 
+function measureElements(elements) {
+  const sizes = new Map();
+  elements.forEach((el, key) => sizes.set(key, { w: el.offsetWidth, h: el.offsetHeight }));
+  return sizes;
+}
+
 function placementStyle(position) {
   return position
     ? { '--tt-x': `${position.left}px`, '--tt-y': `${position.top}px` }
@@ -139,6 +145,11 @@ const TopicNode = React.memo(function TopicNode({
       }}
     >
       <div className="tt-node__title">{node.title}</div>
+      <div className="tt-node__zoom-label">
+        <div className="tt-node__zoom-title" aria-hidden="true" title={node.title}>
+          <span className="tt-node__zoom-text">{node.title}</span>
+        </div>
+      </div>
       {node.summarySameAsParent && (
         <div className="tt-node__summary-toggle">
           <span>Same summary as parent · </span>
@@ -193,9 +204,6 @@ const TopicNode = React.memo(function TopicNode({
         )}
         {node.sourceCount > 0 && <span>· {pluralize(node.sourceCount, 'article')}</span>}
         {node.hiddenCount > 0 && <span>· +{node.hiddenCount} hidden</span>}
-      </div>
-      <div className="tt-node__zoom-title" aria-hidden="true" title={node.title}>
-        <span className="tt-node__zoom-text">{node.title}</span>
       </div>
     </div>
   );
@@ -448,6 +456,7 @@ export default function TopicsTreeCanvas({
   const [measureTick, setMeasureTick] = useState(0);
   // Live card move/resize: the layout is frozen while the pointer is down.
   const [drag, setDrag] = useState(null);
+  const isDragging = drag !== null;
   // Nodes that just folded away, kept on screen while they shrink into their parent.
   const [leaving, setLeaving] = useState([]);
 
@@ -516,18 +525,27 @@ export default function TopicsTreeCanvas({
     latestRef.current = { positions, offsets, displayPositions, expanded, visible };
   });
 
+  // Zoom changes the height of topics with in-flow overview titles without a React render.
+  useEffect(() => {
+    if (isDragging || typeof window.ResizeObserver === 'undefined') return;
+    const observer = new window.ResizeObserver(() => {
+      const next = measureElements(elementsRef.current);
+      setSizes((previous) => (sameSizes(next, previous) ? previous : next));
+    });
+    elementsRef.current.forEach((el) => {
+      if (el.classList.contains('tt-node')) observer.observe(el, { box: 'border-box' });
+    });
+    return () => observer.disconnect();
+  }, [visible, isDragging]);
+
   // After a change that can resize nodes: re-measure, then keep the anchored
   // node on screen (or fit) once sizes settle. A finished resize must relayout
   // before it is anchored.
   useLayoutEffect(() => {
     if (drag) return;
-    const next = new Map();
-    elementsRef.current.forEach((el, key) => {
-      next.set(key, { w: el.offsetWidth, h: el.offsetHeight });
-    });
+    const next = measureElements(elementsRef.current);
     if (!sameSizes(next, sizes)) {
       // Measure-then-layout needs a second pass before paint by design.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSizes(next);
       return;
     }

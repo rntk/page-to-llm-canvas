@@ -118,7 +118,11 @@ function computeTopicSlot(entries, index, depth, maxDepth, columnWidths, totalSe
     1,
     (slotWidth - TOPIC_BORDER_X) / (WIDTH_FONT_DIVISOR + TOPIC_PAD_EM_X),
   );
-  const usableH = Number.isFinite(slotHeight) ? Math.max(1, slotHeight - TOPIC_BORDER_Y) : Infinity;
+  // Topics with prose include the overview title in their measured height.
+  const usableH =
+    !node.summary && Number.isFinite(slotHeight)
+      ? Math.max(1, slotHeight - TOPIC_BORDER_Y)
+      : Infinity;
   const heightCap = Number.isFinite(usableH)
     ? Math.max(1, usableH / (TOPIC_LINE_HEIGHT + TOPIC_PAD_EM_Y))
     : Infinity;
