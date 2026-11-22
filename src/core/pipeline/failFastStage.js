@@ -13,8 +13,10 @@ import { mergeAbortSignals } from '../llm/abortSignals.js';
 export async function runFailFastStage(runtime, parallelMap, execute) {
   const controller = new AbortController();
   const merged = mergeAbortSignals(runtime.signal, controller.signal);
-  const scopedRuntime = Object.create(runtime);
-  scopedRuntime.signal = merged.signal;
+  // Define rather than assign: the parent runtime's fields are read-only.
+  const scopedRuntime = Object.create(runtime, {
+    signal: { value: merged.signal, enumerable: true },
+  });
   const pending = new Set();
   let firstFailure;
   const scopedMap = (items, limit, fn) =>

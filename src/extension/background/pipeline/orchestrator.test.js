@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createPipelineRunner } from './orchestrator.js';
+import { createPipelineRunner, resolveStageSettings } from './orchestrator.js';
 import { createPipelineRuntime } from './pipelineRuntime.js';
 import * as storage from '../../../core/storage/storage.js';
 import * as capturedText from '../../../core/pipeline/capturedText.js';
@@ -1469,5 +1469,48 @@ describe('runPipeline', () => {
     expect(doneCall[1].topic_summaries['Tech>All'].runs[0].text).toBe('Generated summary.');
     // The "intentionally no summaries" outcome flag is cleared on finalize.
     expect(doneCall[1].summariesDisabled).toBe(false);
+  });
+});
+
+describe('resolveStageSettings', () => {
+  const base = { preferContentLanguage: false, maxTextChunkChars: 50_000 };
+
+  it('reads persisted instructions and skipSummaries from the record', () => {
+    const settings = resolveStageSettings({
+      ...base,
+      reusesCheckpoint: false,
+      record: {
+        skipSummaries: true,
+        runInstructions: { splittingInstructions: ' Split by era. ', summaryInstructions: '' },
+      },
+    });
+    expect(settings.splittingInstructions).toBe('Split by era.');
+    expect(settings.summaryInstructions).toBe('');
+    expect(settings.summariesDisabled).toBe(true);
+    // Instructions reserve prompt room out of the provider-specific budget.
+    expect(settings.maxTextChunkChars).toBeLessThan(50_000);
+  });
+
+  it('keeps the provider budget when there are no instructions', () => {
+    const settings = resolveStageSettings({ ...base, reusesCheckpoint: false, record: {} });
+    expect(settings.maxTextChunkChars).toBe(50_000);
+    expect(settings.summariesDisabled).toBe(false);
+  });
+
+  it('reuses checkpoint language only when reusing a checkpoint with a boolean policy', () => {
+    const record = { summaryCheckpointPreferContentLanguage: true };
+    expect(
+      resolveStageSettings({ ...base, reusesCheckpoint: true, record }).preferContentLanguage,
+    ).toBe(true);
+    expect(
+      resolveStageSettings({ ...base, reusesCheckpoint: false, record }).preferContentLanguage,
+    ).toBe(false);
+    expect(
+      resolveStageSettings({
+        ...base,
+        reusesCheckpoint: true,
+        record: { summaryCheckpointPreferContentLanguage: 'yes' },
+      }).preferContentLanguage,
+    ).toBe(false);
   });
 });

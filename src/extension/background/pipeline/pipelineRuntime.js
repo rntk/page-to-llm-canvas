@@ -25,6 +25,8 @@ const logger = createLogger('pipeline');
  * @property {string} [pipelineRunId]
  * @property {AbortSignal} [signal]
  * @property {boolean} [preferContentLanguage]
+ * @property {string} [splittingInstructions]
+ * @property {string} [summaryInstructions]
  * @property {boolean} [verboseLogs]
  * @property {boolean} [summariesDisabled]
  * @property {number} [decisionSplitThreshold]
@@ -33,6 +35,9 @@ const logger = createLogger('pipeline');
  */
 
 /**
+ * Frozen: identity and stage settings are fixed for the runtime's lifetime.
+ * Settings resolved later in a run require a new runtime.
+ *
  * @typedef {Object} PipelineRuntime
  * @property {string} key
  * @property {string|undefined} pipelineRunId
@@ -51,7 +56,6 @@ const logger = createLogger('pipeline');
  * @property {function(string, object): Promise<object>} checkpointTopicSummary
  * @property {function(object): Promise<object>} checkpointSourceSummaryUnit
  * @property {function(object, object=): Promise<object>} saveSummaryTree
- * @property {function(boolean): void} setSummariesDisabled
  * @property {function(string, object, object=): Promise<void>} log
  * @property {function(): Promise<void>} flushLogs
  */
@@ -59,78 +63,82 @@ const logger = createLogger('pipeline');
 /**
  * Creates the storage/logging boundary shared by all pipeline stages. The
  * runtime owns cancellation checks and the expected pipeline-run id so stage
- * modules cannot accidentally persist work for a superseded run.
+ * modules cannot accidentally persist work for a superseded run. Methods use
+ * the identity captured at construction and the returned object is frozen, so
+ * neither guarded writes nor stage settings can be redirected mid-run.
  *
  * @param {PipelineRuntimeContext} context
- * @returns {PipelineRuntime}
+ * @returns {Readonly<PipelineRuntime>}
  */
 export function createPipelineRuntime({
   key,
   pipelineRunId,
   signal,
   preferContentLanguage,
+  splittingInstructions,
+  summaryInstructions,
   verboseLogs,
   summariesDisabled = false,
   decisionSplitThreshold = DEFAULT_DECISION_SPLIT_THRESHOLD,
   maxTextChunkChars = MAX_TAGGED_CHARS,
   maxTopicRangeSentences = TOPIC_RANGE_INPUT_MAX_SENTENCES,
 }) {
-  const runtime = {
+  function assertActive() {
+    if (signal?.aborted) {
+      const err = new Error('Pipeline run was cancelled');
+      err.name = 'AbortError';
+      throw markCancellation(err);
+    }
+  }
+
+  return Object.freeze({
     key,
     pipelineRunId,
     signal,
     preferContentLanguage,
+    splittingInstructions,
+    summaryInstructions,
     verboseLogs,
-    summariesDisabled,
+    summariesDisabled: summariesDisabled === true,
     decisionSplitThreshold,
     maxTextChunkChars,
     maxTopicRangeSentences,
 
-    assertActive() {
-      if (runtime.signal?.aborted) {
-        const err = new Error('Pipeline run was cancelled');
-        err.name = 'AbortError';
-        throw markCancellation(err);
-      }
-    },
+    assertActive,
 
     async read() {
-      runtime.assertActive();
-      return await readRecord(runtime.key);
+      assertActive();
+      return await readRecord(key);
     },
 
     async update(patch, options = {}) {
       // Failure writes may race an abort; the run-id CAS still stops a
       // superseded job from overwriting its successor.
-      if (!options.allowAborted) runtime.assertActive();
-      const updated = await updateRecord(runtime.key, patch, {
-        expectedPipelineRunId: runtime.pipelineRunId,
+      if (!options.allowAborted) assertActive();
+      const updated = await updateRecord(key, patch, {
+        expectedPipelineRunId: pipelineRunId,
         // Lets a failure write refuse to relabel an already-terminal record.
         ...(options.expectedStatuses ? { expectedStatuses: options.expectedStatuses } : {}),
       });
-      if (!updated) {
-        // Losing the CAS means a newer run owns the record: a cancellation even
-        // though the signal never aborted, so mark it explicitly.
-        const err = new Error('Pipeline run is no longer current');
-        err.name = 'AbortError';
-        throw markCancellation(err);
-      }
+      // Losing the CAS means a newer run owns the record: a cancellation even
+      // though the signal never aborted, so mark it explicitly.
+      if (!updated) throwLostRun();
       return updated;
     },
 
     async checkpointTopicSummary(topicPath, summary) {
-      runtime.assertActive();
-      const persisted = await putTopicSummaryCheckpoint(runtime.key, topicPath, summary, {
-        expectedPipelineRunId: runtime.pipelineRunId,
+      assertActive();
+      const persisted = await putTopicSummaryCheckpoint(key, topicPath, summary, {
+        expectedPipelineRunId: pipelineRunId,
       });
       if (!persisted) throwLostRun();
       return persisted;
     },
 
     async checkpointSourceSummaryUnit(unit) {
-      runtime.assertActive();
-      const persisted = await putSourceSummaryUnit(runtime.key, unit, {
-        expectedPipelineRunId: runtime.pipelineRunId,
+      assertActive();
+      const persisted = await putSourceSummaryUnit(key, unit, {
+        expectedPipelineRunId: pipelineRunId,
       });
       if (persisted === SOURCE_SUMMARY_UNIT_REVISION_MISMATCH) {
         // The provider result is still valid for this run; only the optional
@@ -151,21 +159,17 @@ export function createPipelineRuntime({
      * @param {boolean} [options.allowAborted] Persist a failure after an abort.
      */
     async saveSummaryTree(tree, options = {}) {
-      if (!options.allowAborted) runtime.assertActive();
+      if (!options.allowAborted) assertActive();
       const updated = await updateRecord(
-        runtime.key,
+        key,
         { summary_tree: tree },
         {
-          expectedPipelineRunId: runtime.pipelineRunId,
+          expectedPipelineRunId: pipelineRunId,
           expectedStatuses: [PIPELINE_STATUS.DONE],
         },
       );
       if (!updated) throwLostRun();
       return updated;
-    },
-
-    setSummariesDisabled(disabled) {
-      runtime.summariesDisabled = disabled === true;
     },
 
     /**
@@ -178,12 +182,12 @@ export function createPipelineRuntime({
      * @param {boolean} [options.allowAborted]
      */
     async log(stage, details = {}, options = {}) {
-      if (options.verbose && !runtime.verboseLogs) return;
+      if (options.verbose && !verboseLogs) return;
       logger.event(stage, details);
-      if (!options.allowAborted) runtime.assertActive();
+      if (!options.allowAborted) assertActive();
       // Buffered: progress is not serialized behind persistence. runPipeline flushes at the end.
-      appendProcessingLog(runtime.key, stage, details, {
-        expectedPipelineRunId: runtime.pipelineRunId,
+      appendProcessingLog(key, stage, details, {
+        expectedPipelineRunId: pipelineRunId,
       }).catch((err) => {
         logger.warn('log failed:', err);
       });
@@ -192,13 +196,11 @@ export function createPipelineRuntime({
     async flushLogs() {
       // Best-effort: must not mask the pipeline error it accompanies, but is
       // warned since the lost buffer is the trail explaining that failure.
-      await flushProcessingLog(runtime.key).catch((err) => {
+      await flushProcessingLog(key).catch((err) => {
         logger.warn('log flush failed:', err);
       });
     },
-  };
-
-  return runtime;
+  });
 }
 
 function throwLostRun() {

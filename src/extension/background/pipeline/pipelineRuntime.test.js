@@ -142,12 +142,32 @@ describe('createPipelineRuntime', () => {
   });
 
   it('stores the summaries-disabled flag as a strict boolean', () => {
-    const runtime = createPipelineRuntime({ key: 'record-1', summariesDisabled: true });
-    expect(runtime.summariesDisabled).toBe(true);
-    runtime.setSummariesDisabled('true');
-    expect(runtime.summariesDisabled).toBe(false);
-    runtime.setSummariesDisabled(true);
-    expect(runtime.summariesDisabled).toBe(true);
+    expect(createPipelineRuntime({ key: 'record-1', summariesDisabled: true }).summariesDisabled)
+      .toBe(true);
+    expect(createPipelineRuntime({ key: 'record-1', summariesDisabled: 'true' }).summariesDisabled)
+      .toBe(false);
+  });
+
+  it('exposes identity and settings as a read-only snapshot', async () => {
+    const runtime = createPipelineRuntime({
+      key: 'record-1',
+      pipelineRunId: 'run-7',
+      summaryInstructions: 'Be brief.',
+    });
+    expect(Object.isFrozen(runtime)).toBe(true);
+    expect(() => {
+      runtime.pipelineRunId = 'run-8';
+    }).toThrow(TypeError);
+    expect(() => {
+      runtime.summaryInstructions = 'other';
+    }).toThrow(TypeError);
+    storage.updateRecord.mockResolvedValueOnce({ key: 'record-1' });
+    await runtime.update({ status: 'done' });
+    expect(storage.updateRecord).toHaveBeenLastCalledWith(
+      'record-1',
+      { status: 'done' },
+      { expectedPipelineRunId: 'run-7' },
+    );
   });
 
   it('defaults summariesDisabled to false', () => {

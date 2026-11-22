@@ -118,6 +118,50 @@ export function planResume(record) {
 }
 
 /**
+ * Resolves the stage settings that depend on the record and resume policy.
+ * Instructions and skipSummaries are persisted run directives, so resume after
+ * service-worker recycling and Retry keep applying them. A run reusing saved
+ * summaries (resume or manual resplit) keeps their language policy.
+ *
+ * @param {object} params
+ * @param {object} params.record
+ * @param {boolean} params.reusesCheckpoint
+ * @param {boolean} params.preferContentLanguage Current user setting.
+ * @param {number} [params.maxTextChunkChars] Provider-specific chunk budget.
+ * @returns {{splittingInstructions: string, summaryInstructions: string,
+ *   maxTextChunkChars: number, preferContentLanguage: boolean,
+ *   summariesDisabled: boolean}}
+ */
+export function resolveStageSettings({
+  record,
+  reusesCheckpoint,
+  preferContentLanguage,
+  maxTextChunkChars,
+}) {
+  const splittingInstructions = normalizeCustomInstructions(
+    record.runInstructions?.splittingInstructions,
+  );
+  const summaryInstructions = normalizeCustomInstructions(
+    record.runInstructions?.summaryInstructions,
+  );
+  const checkpointLanguage = record.summaryCheckpointPreferContentLanguage;
+  return {
+    splittingInstructions,
+    summaryInstructions,
+    maxTextChunkChars: getCustomInstructionsTextChunkMaxChars(
+      maxTextChunkChars ?? MAX_TAGGED_CHARS,
+      splittingInstructions,
+      summaryInstructions,
+    ),
+    preferContentLanguage:
+      reusesCheckpoint && typeof checkpointLanguage === 'boolean'
+        ? checkpointLanguage
+        : preferContentLanguage,
+    summariesDisabled: record.skipSummaries === true,
+  };
+}
+
+/**
  * Creates one pipeline runner; call once per realm, not per run.
  *
  * Construction resolves the limiter and subscribes to the concurrency setting.
@@ -308,31 +352,18 @@ export function createPipelineRunner({
         limiter.setLimit(maxParallelLlmRequests);
       }
       const providers = bindProviders({ activeProvider, key, verboseLogs });
-      runtime = runtimeFactory({
+      // Settings known before the record read; enough for logging and failures.
+      const settingsContext = {
         ...runtimeContext,
-        preferContentLanguage,
         verboseLogs,
         decisionSplitThreshold,
         ...providers.runtimeOptions,
-      });
+      };
+      runtime = runtimeFactory({ ...settingsContext, preferContentLanguage });
       await runtime.log('pipeline_start');
       const record = await runtime.read();
       if (!record) throw new Error(`record not found: ${key}`);
       if (record.manualResplitIntent) pendingResplitRecord = record;
-      // Guidance is a persisted run directive (like skipSummaries) so that
-      // resume after service-worker recycling and Retry keep applying it.
-      runtime.splittingInstructions = normalizeCustomInstructions(
-        record.runInstructions?.splittingInstructions,
-      );
-      runtime.summaryInstructions = normalizeCustomInstructions(
-        record.runInstructions?.summaryInstructions,
-      );
-      runtime.maxTextChunkChars = getCustomInstructionsTextChunkMaxChars(
-        runtime.maxTextChunkChars ?? MAX_TAGGED_CHARS,
-        runtime.splittingInstructions,
-        runtime.summaryInstructions,
-      );
-      runtime.setSummariesDisabled(record.skipSummaries === true);
 
       // `topic_summaries` is the leaf checkpoint used to resume/retry summary
       // work after service-worker recycling; UI consumers read
@@ -342,6 +373,16 @@ export function createPipelineRunner({
       // Reprocess. Stale/missing revision: topics may not match this content, so
       // rebuild via computeTopics.
       const resuming = !record.manualResplitIntent && resumePlan.resuming;
+      // Stage settings are fixed from here on: every stage sees one snapshot.
+      runtime = runtimeFactory({
+        ...settingsContext,
+        ...resolveStageSettings({
+          record,
+          reusesCheckpoint: resuming || Boolean(record.manualResplitIntent),
+          preferContentLanguage,
+          maxTextChunkChars: settingsContext.maxTextChunkChars,
+        }),
+      });
       if (resumePlan.rejectionReason) {
         await runtime.log('pipeline_resume_rejected', {
           stage: PIPELINE_STAGE.SUMMARIZING,
@@ -363,13 +404,6 @@ export function createPipelineRunner({
       // run, which starts from scratch.
       let carriedCheckpoint = null;
       let resplitForceFinalize = false;
-      // Any run reusing saved summaries must retain their language policy.
-      if (
-        (resuming || record.manualResplitIntent) &&
-        typeof record.summaryCheckpointPreferContentLanguage === 'boolean'
-      ) {
-        runtime.preferContentLanguage = record.summaryCheckpointPreferContentLanguage;
-      }
       if (record.manualResplitIntent) {
         // Until the new topics are written, the saved checkpoint is untouched;
         // any failure restores the record instead of marking it failed.
