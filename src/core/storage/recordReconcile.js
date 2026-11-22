@@ -270,9 +270,10 @@ export async function reconcileRecordStorage() {
       if (uniqueObsoleteKeys.length) await removeLocal(uniqueObsoleteKeys);
       if (JSON.stringify(current) !== JSON.stringify(next)) await writeIndex(next);
 
+      const currentKeySet = new Set(current.keys);
       return {
         recordCount: next.keys.length,
-        recoveredCount: next.keys.filter((key) => !current.keys.includes(key)).length,
+        recoveredCount: next.keys.filter((key) => !currentKeySet.has(key)).length,
         removedKeys: uniqueObsoleteKeys.length,
       };
     }),
