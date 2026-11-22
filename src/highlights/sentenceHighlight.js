@@ -134,8 +134,7 @@ export function isSkippableContainer(node, computedStyleCache) {
  * Find the first direct `<summary>` child rendered by a collapsed `<details>`.
  * Descendant summaries belong to other content.
  * @param {Element} details A `details` element.
- * @param {Map<Element, ?Element>} cache Per-walk memo; called once per text node
- *   under a collapsed subtree.
+ * @param {Map<Element, ?Element>} cache Per-walk memo.
  * @returns {?Element}
  */
 function getOwnSummary(details, cache) {
@@ -149,19 +148,6 @@ function getOwnSummary(details, cache) {
   }
   cache.set(details, own);
   return own;
-}
-
-/**
- * Whether a collapsed `<details>` hides `node` outside its `<summary>`.
- * @param {Element} ancestor Element on the path from `node` to the walk root.
- * @param {Node} node The text node being filtered.
- * @param {Map<Element, ?Element>} cache Per-walk summary memo.
- * @returns {boolean}
- */
-function isCollapsedDetailsContent(ancestor, node, cache) {
-  if (ancestor.tagName !== 'DETAILS' || ancestor.hasAttribute('open')) return false;
-  const summary = getOwnSummary(ancestor, cache);
-  return !summary || !summary.contains(node);
 }
 
 /**
@@ -207,41 +193,32 @@ export function collectWordEntries(roots) {
     }
   };
 
-  const isAcceptedTextNode = (node, root) => {
-    let p = node.parentNode;
-    while (p && p !== root.parentNode) {
-      // visit() prunes skippable ancestors; this still handles partly hidden <details>.
-      if (isCollapsedDetailsContent(p, node, summaryCache)) return false;
-      p = p.parentNode;
-    }
-    // visibility is inherited, so the parent's computed value covers hidden
-    // ancestors. Opacity multiplies down the tree, so walk the full path.
+  const ownOpacity = (element) => {
+    const computed = computedOpacity(getComputedStyleSafe(element, computedStyleCache));
+    if (computed != null) return computed;
+    const inline = Number.parseFloat(inlineProperty(element, 'opacity', 'opacity'));
+    return Number.isFinite(inline) ? inline : null;
+  };
+
+  const isAcceptedTextNode = (node, suppressed) => {
+    // Empty nodes add nothing; whitespace nodes stay so adjacent words do not merge.
+    if (suppressed || !node.nodeValue) return false;
+    // visibility is inherited, so the parent's computed value covers hidden ancestors.
     const parent = node.parentNode;
     const parentStyle = getComputedStyleSafe(parent, computedStyleCache);
     const visibility =
       computedProperty(parentStyle, 'visibility', 'visibility') ||
       inlineProperty(parent, 'visibility', 'visibility');
-    if (visibility === 'hidden' || visibility === 'collapse') return false;
-    let opacity = 1;
-    p = parent;
-    while (p && p !== root.parentNode) {
-      const style = getComputedStyleSafe(p, computedStyleCache);
-      const inlineOpacity = Number.parseFloat(inlineProperty(p, 'opacity', 'opacity'));
-      const ownOpacity =
-        computedOpacity(style) ?? (Number.isFinite(inlineOpacity) ? inlineOpacity : null);
-      if (ownOpacity != null) {
-        opacity *= ownOpacity;
-        if (opacity <= 0) return false;
-      }
-      p = p.parentNode;
-    }
-    // Keep whitespace nodes so adjacent words do not merge.
-    return Boolean(node.nodeValue);
+    return visibility !== 'hidden' && visibility !== 'collapse';
   };
 
-  const visit = (node, root) => {
+  // Ancestor state flows top-down so each element is inspected once. Opacity
+  // multiplies down the tree; `suppressed` marks text under a transparent
+  // ancestor or outside a collapsed <details>'s own summary. Suppressed
+  // subtrees are still walked so their block boundaries separate words.
+  const visit = (node, root, opacity, suppressed) => {
     if (node.nodeType === 3) {
-      if (isAcceptedTextNode(node, root)) appendText(node);
+      if (isAcceptedTextNode(node, suppressed)) appendText(node);
       return;
     }
     if (node.nodeType !== 1 || NEVER_RENDERED_TAGS.has(node.tagName)) return;
@@ -253,7 +230,19 @@ export function collectWordEntries(roots) {
     if (boundary) flushWord();
     // Suppressed blocks still separate adjacent visible text.
     if (!isSkippableContainer(node, computedStyleCache)) {
-      for (const child of node.childNodes) visit(child, root);
+      let childOpacity = opacity;
+      let childSuppressed = suppressed;
+      if (!childSuppressed) {
+        const own = ownOpacity(node);
+        if (own != null) childOpacity *= own;
+        childSuppressed = childOpacity <= 0;
+      }
+      const collapsedDetails = node.tagName === 'DETAILS' && !node.hasAttribute('open');
+      const summary = collapsedDetails ? getOwnSummary(node, summaryCache) : null;
+      for (const child of node.childNodes) {
+        const hiddenByDetails = collapsedDetails && child !== summary;
+        visit(child, root, childOpacity, childSuppressed || hiddenByDetails);
+      }
     }
     if (boundary) flushWord();
   };
@@ -261,7 +250,7 @@ export function collectWordEntries(roots) {
   for (const root of roots || []) {
     if (!root) continue;
     flushWord();
-    visit(root, root);
+    visit(root, root, 1, false);
     flushWord();
   }
 
