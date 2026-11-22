@@ -607,10 +607,14 @@ export async function updateRecord(key, patch, options = {}) {
       // worker that dies before the index projection is updated leaves a meta
       // document whose marker no longer matches the cached snippet.
       if (hasOwn(patch, 'text')) mergedMeta.textRevision = createContentRevision();
-      for (const { name, fields, storageKey } of RECORD_PAYLOAD_SCHEMAS) {
-        if (!fields.some((field) => hasOwn(patch, field))) continue;
-        const documentKey = storageKey(key);
-        const current = (await getLocal(documentKey))[documentKey] || {};
+      const touchedPayloads = RECORD_PAYLOAD_SCHEMAS.filter(({ fields }) =>
+        fields.some((field) => hasOwn(patch, field)),
+      ).map(({ name, fields, storageKey }) => ({ name, fields, documentKey: storageKey(key) }));
+      const currentPayloads = touchedPayloads.length
+        ? await getLocal(touchedPayloads.map(({ documentKey }) => documentKey))
+        : {};
+      for (const { name, fields, documentKey } of touchedPayloads) {
+        const current = currentPayloads[documentKey] || {};
         const merged = { ...current, ...pickFields(patch, fields) };
         writes[documentKey] = merged;
         mergedPayloads[name] = merged;
