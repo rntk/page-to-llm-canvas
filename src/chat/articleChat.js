@@ -16,7 +16,11 @@ import {
 } from './articleChatPrompts.js';
 import { ARTICLE_CHAT_CHUNK_MAX_CHARS, chunkNumberedArticle } from './articleChunking.js';
 import { CHAT_HISTORY_MAX_CHARS, compactConversationHistory } from './conversationHistory.js';
-import { HIGHLIGHT_SPAN_TOOL, rangesOverlap, validateHighlightArgs } from './highlightTool.js';
+import {
+  HIGHLIGHT_SPAN_TOOL,
+  createHighlightLedger,
+  validateHighlightArgs,
+} from './highlightTool.js';
 import {
   SYNTHESIS_GROUP_MIN_SIZE,
   buildSynthesisMessages,
@@ -222,10 +226,11 @@ async function runExtraTool(tool, call, budget, signal) {
 
 /**
  * Execute one model-issued tool call and return its model-facing result plus
- * a single outcome classification.
+ * a single outcome classification. An accepted highlight also returns its
+ * `range` so the chunk can record it.
  * @param {{name?: string, arguments?: object}} call Tool call from the model.
  * @param {object} context Chunk state and dependencies for tool execution.
- * @returns {Promise<{result: string, outcome: string, outcomeError?: string}>}
+ * @returns {Promise<{result: string, outcome: string, outcomeError?: string, range?: object}>}
  */
 async function handleToolCall(
   call,
@@ -236,9 +241,7 @@ async function handleToolCall(
     projectHighlight,
     sentenceCount,
     chunk,
-    ranges,
-    newRanges,
-    eventBudget,
+    highlightLedger,
     onHighlight,
     signal,
     log,
@@ -273,13 +276,16 @@ async function handleToolCall(
     };
   }
 
-  if (ranges.some((existing) => rangesOverlap(existing, range))) {
+  // Reserve synchronously before awaiting paint so sibling workers share one
+  // budget and cannot both accept overlapping ranges.
+  const reservation = highlightLedger.reserve(range);
+  if (reservation === 'overlap') {
     return {
       result: `Skipped ${describeRange(range)}: that passage is already highlighted.`,
       outcome: CHAT_TOOL_OUTCOMES.OVERLAP_SKIPPED,
     };
   }
-  if (eventBudget.remaining === 0) {
+  if (reservation === 'exhausted') {
     return {
       result:
         'Skipped: the turn-wide highlight budget is exhausted. Stop calling tools and finish with a normal text answer.',
@@ -287,18 +293,15 @@ async function handleToolCall(
     };
   }
 
-  // Reserve before awaiting paint so sibling workers share one budget.
-  eventBudget.remaining -= 1;
-  // Commit the range up front: onHighlight is a best-effort paint, and
-  // reporting its failure as a bad call would make the model re-issue the range.
-  ranges.push(range);
-  newRanges.push(range);
+  // The range is committed by the reservation: onHighlight is a best-effort
+  // paint, and reporting its failure as a bad call would make the model
+  // re-issue the range.
   const result = `Highlighted ${describeRange(range)}.`;
   try {
     throwIfAborted(signal);
     await onHighlight?.(range);
     throwIfAborted(signal);
-    return { result, outcome: CHAT_TOOL_OUTCOMES.HIGHLIGHTED };
+    return { result, outcome: CHAT_TOOL_OUTCOMES.HIGHLIGHTED, range };
   } catch (paintError) {
     throwIfAborted(signal);
     const outcomeError = paintError?.message || String(paintError);
@@ -310,15 +313,16 @@ async function handleToolCall(
       },
       { error: true },
     );
-    return { result, outcome: CHAT_TOOL_OUTCOMES.PAINT_FAILED, outcomeError };
+    return { result, outcome: CHAT_TOOL_OUTCOMES.PAINT_FAILED, outcomeError, range };
   }
 }
 
 /**
- * Run the assistant/tool loop against one bounded source chunk. Accepted ranges,
- * the highlight budget and the tool log are shared with sibling chunks; the
- * transcript and source prefix are per chunk.
+ * Run the assistant/tool loop against one bounded source chunk. The highlight
+ * ledger and `recordToolCall` are shared with sibling chunks; the transcript,
+ * the chunk's new ranges and the source prefix are per chunk.
  * @param {object} input Chunk-loop state and dependencies.
+ * @returns {Promise<{reply: string, transcriptMessages: object[], highlightRanges: object[]}>}
  */
 async function runArticleChatChunk({
   chunk,
@@ -326,13 +330,9 @@ async function runArticleChatChunk({
   maxHistoryChars,
   question,
   sentenceCount,
-  ranges,
-  newRanges,
-  eventBudget,
-  transcriptMessages,
+  highlightLedger,
   onHighlight,
-  toolLog,
-  onToolCall,
+  recordToolCall,
   maxToolRounds,
   send,
   signal,
@@ -368,6 +368,8 @@ async function runArticleChatChunk({
     ...(highlightDefinition ? [highlightDefinition] : []),
     ...tools.map((tool) => tool.definition),
   ];
+  const transcriptMessages = [];
+  const highlightRanges = [];
   const toolContext = {
     tools,
     toolCharBudget,
@@ -375,9 +377,7 @@ async function runArticleChatChunk({
     projectHighlight,
     sentenceCount,
     chunk,
-    ranges,
-    newRanges,
-    eventBudget,
+    highlightLedger,
     onHighlight,
     signal,
     log,
@@ -404,7 +404,7 @@ async function runArticleChatChunk({
       },
       { verbose: true },
     );
-    const exhausted = eventBudget.remaining === 0;
+    const exhausted = highlightLedger.isExhausted();
     const requestMessages = exhausted
       ? [...messages, { role: 'system', content: HIGHLIGHT_BUDGET_EXHAUSTED_PROMPT }]
       : messages;
@@ -438,7 +438,7 @@ async function runArticleChatChunk({
         { lineRange: `${chunk.startLine}-${chunk.endLine}`, replyChars: reply.length },
         { verbose: true },
       );
-      return reply;
+      return { reply, transcriptMessages, highlightRanges };
     }
 
     const toolCalls = rawCalls.map((call, index) => ({
@@ -463,16 +463,11 @@ async function runArticleChatChunk({
     for (const call of toolCalls) {
       throwIfAborted(signal);
       // Exactly one outcome code per call; errors also carry a short message for diagnostics.
-      const { result, outcome, outcomeError } = await handleToolCall(call, toolContext);
+      const { result, outcome, outcomeError, range } = await handleToolCall(call, toolContext);
       throwIfAborted(signal);
+      if (range) highlightRanges.push(range);
       recordToolMetric({ outcome, error: outcomeError });
-      const logEntry = createToolLogEntry(call, outcome, outcomeError);
-      toolLog.push(logEntry);
-      try {
-        onToolCall?.(logEntry);
-      } catch (_) {
-        // The live log is cosmetic; it must never fail the turn.
-      }
+      recordToolCall(createToolLogEntry(call, outcome, outcomeError));
       const toolResultMessage = { role: 'tool', content: result, toolCallId: call.id };
       messages.push(toolResultMessage);
       transcriptMessages.push(toolResultMessage);
@@ -611,13 +606,20 @@ export async function runArticleChatTurn(options = {}) {
     };
     const results = new Array(chunks.length);
     // Turn-wide: split oversized sentences repeat a line number across chunks, so
-    // siblings must see each other's ranges. The overlap check and push are
-    // synchronous before onHighlight is awaited, so sharing is safe across workers.
-    // The losing sibling records OVERLAP_SKIPPED (a real redundant call).
-    const acceptedRanges = [...highlightedRanges];
-    const eventBudget = { remaining: MAX_TURN_EVENTS };
+    // siblings must see each other's ranges. The ledger reserves synchronously
+    // before onHighlight is awaited, so sharing is safe across workers. The
+    // losing sibling records OVERLAP_SKIPPED (a real redundant call).
+    const highlightLedger = createHighlightLedger(highlightedRanges, MAX_TURN_EVENTS);
     // Turn-wide, in call order across sibling chunks.
     const toolLog = [];
+    const recordToolCall = (entry) => {
+      toolLog.push(entry);
+      try {
+        onToolCall?.(entry);
+      } catch (_) {
+        // The live log is cosmetic; it must never fail the turn.
+      }
+    };
     let nextChunkIndex = 0;
     const worker = async () => {
       try {
@@ -626,21 +628,15 @@ export async function runArticleChatTurn(options = {}) {
           const index = nextChunkIndex;
           nextChunkIndex += 1;
           const chunk = chunks[index];
-          const chunkRanges = [];
-          const chunkTranscript = [];
-          const reply = await runArticleChatChunk({
+          const chunkResult = await runArticleChatChunk({
             chunk,
             history,
             maxHistoryChars: historyBudget,
             question,
             sentenceCount: Array.isArray(sentences) ? sentences.length : 0,
-            ranges: acceptedRanges,
-            newRanges: chunkRanges,
-            eventBudget,
-            transcriptMessages: chunkTranscript,
+            highlightLedger,
             onHighlight,
-            toolLog,
-            onToolCall,
+            recordToolCall,
             maxToolRounds,
             send: sendChunkRequest,
             signal: turnController.signal,
@@ -653,12 +649,7 @@ export async function runArticleChatTurn(options = {}) {
             toolCharBudget: { remaining: Math.max(0, chunkBudget - chunk.text.length) },
           });
           throwIfAborted(turnController.signal);
-          results[index] = {
-            chunk,
-            reply,
-            transcriptMessages: chunkTranscript,
-            highlightRanges: chunkRanges,
-          };
+          results[index] = { chunk, ...chunkResult };
         }
       } catch (error) {
         abortTurn(error);

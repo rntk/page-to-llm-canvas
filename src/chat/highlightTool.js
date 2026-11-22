@@ -39,6 +39,36 @@ export function rangesOverlap(a, b) {
 }
 
 /**
+ * Per-turn record of highlighted ranges and the remaining highlight budget,
+ * shared by sibling chunk workers. `reserve` checks overlap and spends budget
+ * in one synchronous step, so concurrent workers can never both accept an
+ * overlapping range or overspend the budget while paints are in flight.
+ * @param {Array<{startLine: number, endLine: number, pageUrl?: string}>} initialRanges Ranges already highlighted before this turn.
+ * @param {number} maxHighlights Highlights this turn may add.
+ */
+export function createHighlightLedger(initialRanges, maxHighlights) {
+  const ranges = [...(initialRanges || [])];
+  let remaining = maxHighlights;
+  return {
+    /**
+     * @param {{startLine: number, endLine: number, pageUrl?: string}} range
+     * @returns {'accepted' | 'overlap' | 'exhausted'}
+     */
+    reserve(range) {
+      if (ranges.some((existing) => rangesOverlap(existing, range))) return 'overlap';
+      if (remaining <= 0) return 'exhausted';
+      remaining -= 1;
+      ranges.push(range);
+      return 'accepted';
+    },
+    /** @returns {boolean} */
+    isExhausted() {
+      return remaining <= 0;
+    },
+  };
+}
+
+/**
  * A tool-call validation failure with a stable `code` for outcome classification.
  * @param {string} message Human-facing error message.
  * @param {string} code Stable error code.
