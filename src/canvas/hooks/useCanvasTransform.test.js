@@ -164,21 +164,21 @@ describe('useCanvasTransform', () => {
     // article from layout-x 100 to layout-x 50.
     const localContentX = () => (hook.result.current.scale === 2 ? 50 : 100);
     viewport.getBoundingClientRect = () => ({
-      left: hook.result.current.viewport.translateRef.current.x,
-      top: hook.result.current.viewport.translateRef.current.y,
+      left: hook.result.current.viewport.readTransform().translate.x,
+      top: hook.result.current.viewport.readTransform().translate.y,
       width: 800,
       height: 600,
     });
     content.getBoundingClientRect = () => ({
       left:
-        hook.result.current.viewport.translateRef.current.x +
-        localContentX() * hook.result.current.viewport.scaleRef.current,
-      top: hook.result.current.viewport.translateRef.current.y,
+        hook.result.current.viewport.readTransform().translate.x +
+        localContentX() * hook.result.current.viewport.readScale(),
+      top: hook.result.current.viewport.readTransform().translate.y,
       width: 680,
       height: 1000,
     });
     vi.spyOn(window, 'getComputedStyle').mockImplementation(() => ({
-      transform: `matrix(${hook.result.current.viewport.scaleRef.current}, 0, 0, ${hook.result.current.viewport.scaleRef.current}, 0, 0)`,
+      transform: `matrix(${hook.result.current.viewport.readScale()}, 0, 0, ${hook.result.current.viewport.readScale()}, 0, 0)`,
     }));
 
     act(() => hook.result.current.canvasViewportRef(viewport));
@@ -202,18 +202,48 @@ describe('useCanvasTransform', () => {
     expect(result.current.scale).toBe(1.5);
     expect(result.current.viewport).toBe(first);
     expect(Object.keys(result.current.viewport).sort()).toEqual([
-      'canvasWrapElRef',
-      'flashZoomingToTarget',
-      'scaleRef',
+      'getWrapElement',
+      'hasUserMoved',
+      'markUserMoved',
+      'readScale',
+      'readTransform',
+      'restoreView',
       'setTransformNow',
-      'translateRef',
-      'userMovedCanvasRef',
       'zoomAtPoint',
       'zoomToTarget',
     ]);
-    // The handle's members are absent from the flat return.
+    // Live refs stay private; the handle's members are absent from the flat return.
     expect(result.current.scaleRef).toBeUndefined();
     expect(result.current.setTransformNow).toBeUndefined();
+  });
+
+  it('reads the live transform as a copy', () => {
+    const { result } = renderHook(() => useCanvasTransform());
+    act(() => result.current.viewport.setTransformNow(1.5, { x: 100, y: 200 }));
+    const view = result.current.viewport.readTransform();
+    expect(view).toEqual({ scale: 1.5, translate: { x: 100, y: 200 } });
+    view.translate.x = 999;
+    expect(result.current.viewport.readTransform().translate.x).toBe(100);
+    expect(result.current.viewport.readScale()).toBe(1.5);
+  });
+
+  it('restoreView animates to the view, records user movement and suppresses measurement', () => {
+    const { result } = renderHook(() => useCanvasTransform());
+    expect(result.current.viewport.hasUserMoved()).toBe(false);
+    act(() => result.current.viewport.restoreView({ scale: 0.4, translate: { x: 10, y: -200 } }));
+    expect(result.current.scale).toBe(0.4);
+    expect(result.current.translate).toEqual({ x: 10, y: -200 });
+    expect(result.current.viewport.hasUserMoved()).toBe(true);
+    expect(result.current.isFocusingHighlight).toBe(true);
+    // Rects animate while the live scale already holds the restored value.
+    expect(result.current.isZoomingToTarget).toBe(true);
+  });
+
+  it('markUserMoved records movement without moving the canvas', () => {
+    const { result } = renderHook(() => useCanvasTransform());
+    act(() => result.current.viewport.markUserMoved());
+    expect(result.current.viewport.hasUserMoved()).toBe(true);
+    expect(result.current.translate).toEqual({ x: 40, y: 40 });
   });
 
   it('ArrowUp keyboard pan offsets translate upward', () => {
@@ -516,8 +546,8 @@ describe('useCanvasTransform', () => {
       wrap.dispatchEvent(swipe);
     });
     expect(swipe.defaultPrevented).toBe(true);
-    expect(result.current.viewport.translateRef.current.x).toBe(startX - 50);
-    expect(result.current.viewport.scaleRef.current).toBe(1);
+    expect(result.current.viewport.readTransform().translate.x).toBe(startX - 50);
+    expect(result.current.viewport.readScale()).toBe(1);
   });
 
   it('wheel zoom listener is attached when canvas wrap mounts', () => {
@@ -665,8 +695,8 @@ describe('useCanvasTransform', () => {
     act(() => {
       wrap.dispatchEvent(wheelOut);
     });
-    const liveScale = result.current.viewport.scaleRef.current;
-    const liveTranslate = result.current.viewport.translateRef.current;
+    const liveScale = result.current.viewport.readScale();
+    const liveTranslate = result.current.viewport.readTransform().translate;
     expect((cursor.x - liveTranslate.x) / liveScale).toBeCloseTo(originalCanvasPoint.x);
     expect((cursor.y - liveTranslate.y) / liveScale).toBeCloseTo(originalCanvasPoint.y);
     await act(async () => {
@@ -714,7 +744,7 @@ describe('useCanvasTransform', () => {
     });
     act(() => wrap.dispatchEvent(trackpadWheel));
 
-    expect(result.current.viewport.scaleRef.current).toBeCloseTo(Math.exp(0.0008), 8);
+    expect(result.current.viewport.readScale()).toBeCloseTo(Math.exp(0.0008), 8);
   });
 
   it('corrects live card reflow in the same wheel frame', async () => {
@@ -729,21 +759,21 @@ describe('useCanvasTransform', () => {
     const viewport = document.createElement('div');
     wrap.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600 });
     viewport.getBoundingClientRect = () => ({
-      left: result.current.viewport.translateRef.current.x,
-      top: result.current.viewport.translateRef.current.y,
+      left: result.current.viewport.readTransform().translate.x,
+      top: result.current.viewport.readTransform().translate.y,
       width: 800,
       height: 600,
     });
     content.getBoundingClientRect = () => ({
       left:
-        result.current.viewport.translateRef.current.x +
-        localContentX * result.current.viewport.scaleRef.current,
-      top: result.current.viewport.translateRef.current.y,
+        result.current.viewport.readTransform().translate.x +
+        localContentX * result.current.viewport.readScale(),
+      top: result.current.viewport.readTransform().translate.y,
       width: 680,
       height: 1000,
     });
     vi.spyOn(window, 'getComputedStyle').mockImplementation(() => ({
-      transform: `matrix(${result.current.viewport.scaleRef.current}, 0, 0, ${result.current.viewport.scaleRef.current}, 0, 0)`,
+      transform: `matrix(${result.current.viewport.readScale()}, 0, 0, ${result.current.viewport.readScale()}, 0, 0)`,
     }));
     document.body.append(wrap, viewport, content);
     act(() => {
@@ -757,7 +787,7 @@ describe('useCanvasTransform', () => {
       clientY: { value: 100 },
     });
     act(() => wrap.dispatchEvent(wheel));
-    const visualScale = result.current.viewport.scaleRef.current;
+    const visualScale = result.current.viewport.readScale();
     const expectedContentLeft =
       cursorAnchoredTranslate({
         cursor: { x: 100, y: 100 },

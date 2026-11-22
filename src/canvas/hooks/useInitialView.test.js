@@ -15,12 +15,11 @@ function makeProps({ viewport: viewportOverrides, ...overrides } = {}) {
     maxLevel: 0,
     selectedLevel: 0,
     setSelectedLevel: vi.fn(),
-    // Live transform refs and setTransformNow travel together, as in the real handle.
+    // Live reads and setTransformNow travel together, as in the real handle.
     viewport: {
-      userMovedCanvasRef: { current: false },
+      hasUserMoved: () => false,
       setTransformNow: vi.fn(),
-      scaleRef: { current: 1 },
-      translateRef: { current: { x: 40, y: 40 } },
+      readTransform: () => ({ scale: 1, translate: { x: 40, y: 40 } }),
       ...viewportOverrides,
     },
     showSummaryMode: false,
@@ -118,7 +117,7 @@ describe('useInitialView', () => {
   });
 
   it('skips the opening view when the user already moved the canvas', () => {
-    const props = makeProps({ viewport: { userMovedCanvasRef: { current: true } } });
+    const props = makeProps({ viewport: { hasUserMoved: () => true } });
     const ctx = setup(props);
     expect(props.setSelectedLevel).not.toHaveBeenCalled();
     expect(props.viewport.setTransformNow).not.toHaveBeenCalled();

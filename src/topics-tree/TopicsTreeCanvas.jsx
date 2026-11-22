@@ -25,13 +25,7 @@ import {
   treeDepth,
   visibleTree,
 } from './expansion.js';
-import {
-  containerZoomMultiplier,
-  labelSize,
-  leafTitleZoomSlot,
-  titleZoomSlots,
-  topicMaxWidth,
-} from './labelMetrics.js';
+import { labelSize, leafTitleZoomSlot, titleZoomSlots, topicMaxWidth } from './labelMetrics.js';
 import { boundsOf, clampCardSize, layoutTree, overviewBoundsOf, treeLinks } from './treeLayout.js';
 import {
   MOTION_LINGER_MS,
@@ -440,7 +434,8 @@ export default function TopicsTreeCanvas({
   leafChat = null,
   controlsHost = null,
 }) {
-  const { canvasRef, stageRef, transformRef, boundsRef, translateBy, fit } = useTreeViewport();
+  const { canvasRef, stageRef, setContentBounds, holdAnchor, screenToLayoutDelta, fit } =
+    useTreeViewport();
   const [expanded, setExpanded] = useState(() => initialExpanded(tree));
   const [shownSummaries, setShownSummaries] = useState(() => new Set());
   const [openChats, setOpenChats] = useState(() => new Set());
@@ -481,8 +476,8 @@ export default function TopicsTreeCanvas({
     return positions || EMPTY_MAP;
   }, [drag, positions]);
   useLayoutEffect(() => {
-    boundsRef.current = boundsOf(displayPositions.values());
-  }, [boundsRef, displayPositions]);
+    setContentBounds(boundsOf(displayPositions.values()));
+  }, [setContentBounds, displayPositions]);
   const onPath = useMemo(
     () => new Set(pathTo(tree, selectedKey).map((node) => node.key)),
     [tree, selectedKey],
@@ -554,13 +549,7 @@ export default function TopicsTreeCanvas({
     if (!anchor) return;
     pendingAnchorRef.current = null;
     const after = positions.get(anchor.key);
-    if (!after) return;
-    const { k } = transformRef.current;
-    const xScale = containerZoomMultiplier(k);
-    translateBy(
-      (anchor.before.left - after.left) * xScale * k,
-      (anchor.before.top - after.top) * k,
-    );
+    if (after) holdAnchor(anchor.before, after);
   }, [
     drag,
     sizes,
@@ -571,8 +560,7 @@ export default function TopicsTreeCanvas({
     shownSummaries,
     measureTick,
     fit,
-    translateBy,
-    transformRef,
+    holdAnchor,
   ]);
 
   useEffect(
@@ -721,10 +709,7 @@ export default function TopicsTreeCanvas({
       setDrag({ key, mode, pos: latest, frozen: layout });
 
       const onMove = (totalX, totalY) => {
-        const k = transformRef.current.k || 1;
-        const xScale = containerZoomMultiplier(k);
-        const dx = totalX / (k * xScale);
-        const dy = totalY / k;
+        const { dx, dy } = screenToLayoutDelta(totalX, totalY);
         latest =
           mode === 'move'
             ? { ...start, left: start.left + dx, top: start.top + dy }
@@ -749,7 +734,7 @@ export default function TopicsTreeCanvas({
       dragCleanupRef.current?.();
       dragCleanupRef.current = trackPointer(event, onMove, onUp);
     },
-    [handleSelectCard, transformRef],
+    [handleSelectCard, screenToLayoutDelta],
   );
 
   const handleSelectLevel = (topicLevel) => {

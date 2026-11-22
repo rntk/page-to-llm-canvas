@@ -31,6 +31,11 @@ function wheelZoomFactor(event) {
  * Drag empty space or a topic to pan; wheel zooms around the cursor. Over a
  * card the wheel scrolls the card unless Ctrl is held (pinch zoom also sends
  * Ctrl+wheel).
+ *
+ * The transform and content bounds stay private. Callers report bounds with
+ * `setContentBounds`, keep a relaid-out node in place with `holdAnchor`, and
+ * convert pointer deltas with `screenToLayoutDelta`; all three apply the
+ * title-zoom horizontal multiplier so layout x and screen x stay consistent.
  */
 export function useTreeViewport() {
   const canvasRef = useRef(null);
@@ -51,6 +56,17 @@ export function useTreeViewport() {
     }
   }, []);
 
+  /** Layout extent used by Home/End; reported by the owner after each layout. */
+  const setContentBounds = useCallback((bounds) => {
+    boundsRef.current = bounds;
+  }, []);
+
+  /** Screen-space pointer delta to layout-space delta at the live zoom. */
+  const screenToLayoutDelta = useCallback((dx, dy) => {
+    const k = transformRef.current.k || 1;
+    return { dx: dx / (k * containerZoomMultiplier(k)), dy: dy / k };
+  }, []);
+
   /** Shift the view by a screen-space delta. */
   const translateBy = useCallback(
     (dx, dy) => {
@@ -58,6 +74,21 @@ export function useTreeViewport() {
       apply({ k, x: x + dx, y: y + dy });
     },
     [apply],
+  );
+
+  /**
+   * Keep a node at the same screen position after relayout moved it from
+   * `before` to `after` (layout-space {left, top}).
+   */
+  const holdAnchor = useCallback(
+    (before, after) => {
+      const k = transformRef.current.k || 1;
+      translateBy(
+        (before.left - after.left) * containerZoomMultiplier(k) * k,
+        (before.top - after.top) * k,
+      );
+    },
+    [translateBy],
   );
 
   const fit = useCallback(
@@ -196,5 +227,14 @@ export function useTreeViewport() {
     };
   }, [apply, translateBy, zoomAt]);
 
-  return { canvasRef, stageRef, transformRef, boundsRef, translateBy, fit, zoomAt };
+  return {
+    canvasRef,
+    stageRef,
+    setContentBounds,
+    holdAnchor,
+    screenToLayoutDelta,
+    translateBy,
+    fit,
+    zoomAt,
+  };
 }

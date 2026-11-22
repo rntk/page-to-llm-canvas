@@ -79,20 +79,24 @@ vi.mock('../utils/canvasMath.js', () => ({
 }));
 // The real hook memoizes `viewport`; keep one object across renders too, since App
 // uses it as an effect dependency.
-const viewportMock = vi.hoisted(() => ({
-  // Read through to `state` so tests can swap the wrap element per case.
-  canvasWrapElRef: {
-    get current() {
-      return state.canvasWrapElement;
+const viewportMock = vi.hoisted(() => {
+  const live = { scale: 1, translate: { x: 3, y: 4 }, userMoved: false };
+  return {
+    // Read through to `state` so tests can swap the wrap element per case.
+    getWrapElement: () => state.canvasWrapElement,
+    live,
+    readTransform: () => ({ scale: live.scale, translate: { ...live.translate } }),
+    readScale: () => live.scale,
+    hasUserMoved: () => live.userMoved,
+    markUserMoved: () => {
+      live.userMoved = true;
     },
-  },
-  scaleRef: { current: 1 },
-  translateRef: { current: { x: 3, y: 4 } },
-  userMovedCanvasRef: { current: false },
-  setTransformNow: mocks.setTransformNow,
-  zoomAtPoint: vi.fn(),
-  zoomToTarget: mocks.zoomToTarget,
-}));
+    restoreView: vi.fn(),
+    setTransformNow: mocks.setTransformNow,
+    zoomAtPoint: vi.fn(),
+    zoomToTarget: mocks.zoomToTarget,
+  };
+});
 
 vi.mock('./hooks/useCanvasTransform.js', () => ({
   useCanvasTransform: (options) => {
@@ -267,9 +271,8 @@ describe('App composition behavior', () => {
     state.onVisualScaleChange = null;
     state.hasSettledLayout = true;
     // The shared viewport handle is stateful across tests; reset the members App writes to.
-    viewportMock.scaleRef.current = 1;
-    viewportMock.translateRef.current = { x: 3, y: 4 };
-    viewportMock.userMovedCanvasRef.current = false;
+    Object.assign(viewportMock.live, { scale: 1, translate: { x: 3, y: 4 }, userMoved: false });
+    viewportMock.restoreView.mockClear();
     viewportMock.zoomAtPoint.mockClear();
     vi.clearAllMocks();
     mocks.refreshSentenceRanges.mockReturnValue({ wordEntries: [], sentenceRanges: new Map() });

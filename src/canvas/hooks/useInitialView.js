@@ -51,9 +51,8 @@ function initialViewReducer(phase, action) {
  * @param {number} params.selectedLevel
  * @param {function(number): void} params.setSelectedLevel
  * @param {object} params.viewport
- * @param {object} params.viewport.userMovedCanvasRef
- * @param {object} params.viewport.scaleRef
- * @param {object} params.viewport.translateRef
+ * @param {function(): boolean} params.viewport.hasUserMoved
+ * @param {function(): {scale: number, translate: {x: number, y: number}}} params.viewport.readTransform
  * @param {function(number, {x: number, y: number}): void} params.viewport.setTransformNow
  * @param {boolean} params.showSummaryMode
  * @param {Array<unknown>} params.summaryCards
@@ -79,7 +78,7 @@ export function useInitialView({
   selectTopic,
 }) {
   // Reads the live transform via the viewport handle, not render-state scale/translate.
-  const { userMovedCanvasRef, setTransformNow, scaleRef, translateRef } = viewport;
+  const { hasUserMoved, setTransformNow, readTransform } = viewport;
   const [initialViewPhase, dispatch] = useReducer(initialViewReducer, 'pending');
 
   // ── Opening view: leaf level, zoomed out ~3 clicks, first topic's summary ──
@@ -94,7 +93,7 @@ export function useInitialView({
     }
     if (sentenceMetrics.size === 0) return;
     // User touched the canvas while this settled; don't yank their view.
-    if (userMovedCanvasRef.current || selectedLevel !== 0) {
+    if (hasUserMoved() || selectedLevel !== 0) {
       dispatch('skip');
       return;
     }
@@ -109,16 +108,17 @@ export function useInitialView({
     maxLevel,
     selectedLevel,
     setSelectedLevel,
-    userMovedCanvasRef,
+    hasUserMoved,
   ]);
 
   // Phase 2: once the leaf level commits, zoom out 3 "-" clicks so a few levels fit.
   useEffect(() => {
     if (initialViewPhase !== 'level-set') return;
     if (maxLevel > 0 && selectedLevel !== maxLevel) return;
-    setTransformNow(clampScale((scaleRef.current || 1) / 1.2 ** 3), translateRef.current);
+    const { scale, translate } = readTransform();
+    setTransformNow(clampScale(scale / 1.2 ** 3), translate);
     dispatch('zoomed');
-  }, [initialViewPhase, selectedLevel, maxLevel, setTransformNow, scaleRef, translateRef]);
+  }, [initialViewPhase, selectedLevel, maxLevel, setTransformNow, readTransform]);
 
   // Phase 3: select the first topic (as "First topic" does) so its summary shows.
   useEffect(() => {

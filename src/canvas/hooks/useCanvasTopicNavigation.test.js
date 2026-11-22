@@ -31,11 +31,9 @@ function setup(overrides = {}) {
     // The transform hook's imperative handle (stable identity, as in the real hook).
     viewport: {
       zoomToTarget: vi.fn(),
-      canvasWrapElRef: { current: { clientHeight: 600 } },
-      scaleRef: { current: 2 },
-      translateRef: { current: { x: 42, y: -20 } },
+      getWrapElement: () => ({ clientHeight: 600 }),
+      readTransform: () => ({ scale: 2, translate: { x: 42, y: -20 } }),
       setTransformNow: vi.fn(),
-      userMovedCanvasRef: { current: false },
     },
     flashFocus: vi.fn(),
     navigateCanvas: vi.fn(),

@@ -53,13 +53,15 @@ function setup(overrides = {}) {
     }
   };
 
+  const liveScale = { current: 1 };
   const article = makeArticle();
   const wrap = makeWrap();
   const props = {
     articleTextRef: { current: article },
     summaryWrapRef: { current: wrap },
     summaryCardRegistry: createCardElementRegistry({ current: {} }),
-    scaleRef: { current: 1 },
+    // Live scale, mutable like the transform hook's private ref.
+    readScale: () => liveScale.current,
     showSummaryMode: false,
     isZoomingToTarget: false,
     sentences: SENTENCES,
@@ -83,6 +85,7 @@ function setup(overrides = {}) {
     article,
     wrap,
     props,
+    liveScale,
     flushRafs,
     flushFrame,
     rerender(next) {
@@ -130,7 +133,7 @@ describe('useSentenceMetrics', () => {
   });
 
   it('divides settled rects by the current scale', () => {
-    const ctx = setup({ scaleRef: { current: 2 } });
+    const ctx = setup({ readScale: () => 2 });
     ctx.flushRafs();
     expect(ctx.result.current.sentenceMetrics.get(1)).toEqual({ top: 50, bottom: 60 });
     ctx.cleanup();
@@ -248,8 +251,8 @@ describe('useSentenceMetrics', () => {
     const ctx = setup({ showSummaryMode: true });
     ctx.flushRafs();
 
-    // The scale ref already holds the target while the DOM is mid-transition.
-    ctx.props.scaleRef.current = 2;
+    // The live scale already holds the target while the DOM is mid-transition.
+    ctx.liveScale.current = 2;
     rectsSpy.mockClear();
     ctx.rerender({ showSummaryMode: false, isZoomingToTarget: true });
     ctx.flushRafs();

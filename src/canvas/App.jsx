@@ -244,14 +244,14 @@ function CanvasApp({
     handlePointerDown,
     navigateCanvas,
     flashFocus,
-    // Stable imperative handle (live transform refs, setTransformNow, zoomToTarget).
+    // Stable command handle (live reads, restoreView, setTransformNow, zoomToTarget).
     viewport,
   } = useCanvasTransform({
     contentRef: articleTextRef,
     onVisualScaleChange: applyVisualCardScale,
   });
-  // Destructure refs for the React Compiler; pass the stable handle to other hooks.
-  const { canvasWrapElRef, scaleRef, userMovedCanvasRef } = viewport;
+  // Destructure stable commands for the React Compiler; pass the handle to other hooks.
+  const { getWrapElement, readScale, markUserMoved } = viewport;
 
   const handleCanvasPointerDown = useCallback(
     (e) => {
@@ -265,7 +265,7 @@ function CanvasApp({
         return;
       }
       // handlePointerDown's preventDefault suppresses native focus; re-focus for shortcuts.
-      const wrap = canvasWrapElRef.current;
+      const wrap = getWrapElement();
       if (wrap && typeof wrap.focus === 'function') {
         wrap.focus({ preventScroll: true });
       }
@@ -276,7 +276,7 @@ function CanvasApp({
       }
       handlePointerDown(e);
     },
-    [handlePointerDown, canvasWrapElRef],
+    [handlePointerDown, getWrapElement],
   );
 
   const {
@@ -298,7 +298,7 @@ function CanvasApp({
       summaryWrapRef,
       summaryCardRegistry,
       // Measurement only needs the live scale, not the whole viewport handle.
-      scaleRef,
+      readScale,
       showSummaryMode,
       isZoomingToTarget,
       sentences,
@@ -356,7 +356,6 @@ function CanvasApp({
     showSummaryMode,
     setShowSummaryMode,
     skipNextAlignment,
-    flashFocus,
   });
 
   // Summary card left of the article for the hovered/selected rail topic.
@@ -496,24 +495,24 @@ function CanvasApp({
   }, []);
 
   useEffect(() => {
-    const wrap = canvasWrapElRef.current;
+    const wrap = getWrapElement();
     if (wrap && typeof wrap.focus === 'function') {
       wrap.focus({ preventScroll: true });
     }
-  }, [canvasWrapElRef]);
+  }, [getWrapElement]);
 
   const zoomFromViewportCenter = useCallback(
     (factor) => {
-      const wrap = canvasWrapElRef.current;
+      const wrap = getWrapElement();
       if (!wrap) return;
-      const currentScale = scaleRef.current || 1;
+      const currentScale = readScale();
       const nextScale = clampScale(currentScale * factor);
       if (nextScale === currentScale) return;
       const cursor = { x: wrap.clientWidth / 2, y: wrap.clientHeight / 2 };
       viewport.zoomAtPoint(cursor, nextScale);
       flashFocus();
     },
-    [canvasWrapElRef, flashFocus, scaleRef, viewport],
+    [flashFocus, getWrapElement, readScale, viewport],
   );
 
   const handleZoomIn = useCallback(() => zoomFromViewportCenter(1.2), [zoomFromViewportCenter]);
@@ -524,9 +523,9 @@ function CanvasApp({
   );
 
   const handleReset = useCallback(() => {
-    userMovedCanvasRef.current = true;
+    markUserMoved();
     viewport.setTransformNow(1, { x: 40, y: 40 });
-  }, [viewport, userMovedCanvasRef]);
+  }, [viewport, markUserMoved]);
 
   const handleToggleSummaryMode = useCallback(() => {
     if (summariesDisabled) return;

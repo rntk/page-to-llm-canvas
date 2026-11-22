@@ -7,10 +7,10 @@ import { useTreeViewport } from './useTreeViewport.js';
 let mounted = [];
 
 function ViewportHarness() {
-  const { canvasRef, stageRef, boundsRef } = useTreeViewport();
+  const { canvasRef, stageRef, setContentBounds } = useTreeViewport();
   useEffect(() => {
-    boundsRef.current = { minY: 10, height: 1000 };
-  }, [boundsRef]);
+    setContentBounds({ minY: 10, height: 1000 });
+  }, [setContentBounds]);
   return createElement(
     'div',
     { ref: canvasRef, className: 'canvas', style: { height: '500px' } },

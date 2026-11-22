@@ -55,17 +55,24 @@ export function computeComfortLeft(currentLeft, columnWidth, wrapWidth) {
  * @param {object} params
  * @param {object} params.anchorRef
  * @param {object} params.viewport
- * @param {object} params.viewport.canvasWrapElRef
- * @param {object} params.viewport.scaleRef
- * @param {object} params.viewport.translateRef
+ * @param {function(): (HTMLElement|null)} params.viewport.getWrapElement
+ * @param {function(): {scale: number, translate: {x: number, y: number}}} params.viewport.readTransform
  * @param {function(number, {x: number, y: number}): void} params.viewport.setTransformNow
  * @param {function(): void} [params.flashFocus]
  * @param {ReadonlyArray<unknown>} params.deps
  * @returns {{captureAnchor: function(boolean=): void, skipNextAlignment: function(): void}}
  */
 export function useCanvasAlignment({ anchorRef, viewport, flashFocus, deps }) {
-  // The wrap element is this hook's measurement frame (hence `wrapElRef`).
-  const { canvasWrapElRef: wrapElRef, setTransformNow, translateRef, scaleRef } = viewport;
+  // The wrap element is this hook's measurement frame.
+  const { getWrapElement, setTransformNow, readTransform } = viewport;
+  // Instant pan at the live scale; alignment is layout-driven, not user movement.
+  const shiftBy = useCallback(
+    (dx, dy) => {
+      const { scale, translate } = readTransform();
+      setTransformNow(scale, { x: translate.x + dx, y: translate.y + dy });
+    },
+    [readTransform, setTransformNow],
+  );
   // Column's pre-change position, captured by callers before a layout-affecting
   // update. `resetTop` resets vertical position to the top margin instead of
   // preserving it (wholesale content swap, i.e. summary-mode toggle).
@@ -84,7 +91,7 @@ export function useCanvasAlignment({ anchorRef, viewport, flashFocus, deps }) {
   const captureAnchor = useCallback(
     (resetTop = false) => {
       const anchor = anchorRef.current;
-      const wrap = wrapElRef.current;
+      const wrap = getWrapElement();
       if (!anchor || !wrap) return;
       const wrapRect = wrap.getBoundingClientRect();
       const anchorRect = anchor.getBoundingClientRect();
@@ -95,7 +102,7 @@ export function useCanvasAlignment({ anchorRef, viewport, flashFocus, deps }) {
         resetTop,
       };
     },
-    [anchorRef, wrapElRef],
+    [anchorRef, getWrapElement],
   );
 
   const align = useCallback(
@@ -105,7 +112,7 @@ export function useCanvasAlignment({ anchorRef, viewport, flashFocus, deps }) {
         moveRafRef.current = 0;
       }
       const anchor = anchorRef.current;
-      const wrap = wrapElRef.current;
+      const wrap = getWrapElement();
       if (!anchor || !wrap) return;
       const wrapRect = wrap.getBoundingClientRect();
       const anchorRect = anchor.getBoundingClientRect();
@@ -120,10 +127,7 @@ export function useCanvasAlignment({ anchorRef, viewport, flashFocus, deps }) {
         const dx = left - anchorLeft;
         const dy = top - anchorTop;
         if (Math.abs(dx) < MIN_DELTA && Math.abs(dy) < MIN_DELTA) return false;
-        setTransformNow(scaleRef.current || 1, {
-          x: translateRef.current.x + dx,
-          y: translateRef.current.y + dy,
-        });
+        shiftBy(dx, dy);
         return true;
       };
 
@@ -157,7 +161,7 @@ export function useCanvasAlignment({ anchorRef, viewport, flashFocus, deps }) {
         moveRafRef.current = 0;
         if (flashFocus) flashFocus();
         const a = anchorRef.current;
-        const w = wrapElRef.current;
+        const w = getWrapElement();
         if (!a || !w) return;
         const wRect = w.getBoundingClientRect();
         const aRect = a.getBoundingClientRect();
@@ -167,13 +171,10 @@ export function useCanvasAlignment({ anchorRef, viewport, flashFocus, deps }) {
         const dx = finalLeft - curLeft;
         const dy = finalTop - curTop;
         if (Math.abs(dx) < MIN_DELTA && Math.abs(dy) < MIN_DELTA) return;
-        setTransformNow(scaleRef.current || 1, {
-          x: translateRef.current.x + dx,
-          y: translateRef.current.y + dy,
-        });
+        shiftBy(dx, dy);
       });
     },
-    [anchorRef, wrapElRef, setTransformNow, translateRef, scaleRef, flashFocus],
+    [anchorRef, getWrapElement, shiftBy, flashFocus],
   );
 
   // Wrap padding commits with scale, so align before paint from settled geometry.

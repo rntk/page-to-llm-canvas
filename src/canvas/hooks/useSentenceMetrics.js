@@ -53,7 +53,7 @@ function areSummaryMetricsEqual(prevMetrics, nextMetrics) {
  * @param {object} params.articleTextRef
  * @param {object} params.summaryWrapRef
  * @param {{get: function(string): ?Element, entries: function(): Array<[string, Element]>, register: function(string, ?Element): void}} params.summaryCardRegistry
- * @param {object} params.scaleRef
+ * @param {function(): number} params.readScale Live canvas scale (read per measurement, not render state).
  * @param {boolean} params.showSummaryMode
  * @param {boolean} params.isZoomingToTarget
  * @param {Array<unknown>} params.sentences
@@ -65,7 +65,7 @@ export function useSentenceMetrics({
   articleTextRef,
   summaryWrapRef,
   summaryCardRegistry,
-  scaleRef,
+  readScale,
   showSummaryMode,
   isZoomingToTarget,
   sentences,
@@ -118,14 +118,14 @@ export function useSentenceMetrics({
 
   const measureSentencePositions = useCallback(() => {
     const wrap = summaryWrapRef.current;
-    // During target zoom, scaleRef has the final scale but rects are still moving.
+    // During target zoom, the live scale is already final but rects are still moving.
     // Measure again once the animation ends.
     if (!wrap || showSummaryMode || isZoomingToTarget) return null;
     const { wordEntries, sentenceRanges } = refreshSentenceRanges();
     if (!sentenceRanges.size) return sentences.length === 0;
 
     const wrapRect = wrap.getBoundingClientRect();
-    const s = scaleRef.current || 1;
+    const s = readScale();
     const isLaidOut = (r) => r && (r.width > 0 || r.height > 0);
     // Source styles can position text outside the article. Drop off-sheet rects
     // and clamp the rest; skip clamping when the sheet has no measured height.
@@ -158,7 +158,7 @@ export function useSentenceMetrics({
   }, [
     articleTextRef,
     summaryWrapRef,
-    scaleRef,
+    readScale,
     showSummaryMode,
     isZoomingToTarget,
     refreshSentenceRanges,
@@ -169,7 +169,7 @@ export function useSentenceMetrics({
     const wrap = summaryWrapRef.current;
     if (!wrap || !showSummaryMode) return null;
     const wrapRect = wrap.getBoundingClientRect();
-    const s = scaleRef.current || 1;
+    const s = readScale();
     const next = new Map();
     summaryCardRegistry.entries().forEach(([path, el]) => {
       if (!el) return;
@@ -186,7 +186,7 @@ export function useSentenceMetrics({
     summaryMetricsRef.current = next;
     setSummaryMetricsState(next);
     return false;
-  }, [summaryWrapRef, summaryCardRegistry, scaleRef, showSummaryMode, summaryCards]);
+  }, [summaryWrapRef, summaryCardRegistry, readScale, showSummaryMode, summaryCards]);
 
   useLayoutEffect(() => {
     let raf = 0;

@@ -27,7 +27,7 @@ export function useCanvasTopicNavigation({
   skipNextAlignment,
   captureReturnPoint,
 }) {
-  const { zoomToTarget, canvasWrapElRef, scaleRef, translateRef, setTransformNow } = viewport;
+  const { zoomToTarget, getWrapElement, readTransform, setTransformNow } = viewport;
   const pendingZoomSentenceRef = useRef(null);
   const selectedTopicKey = selectedTarget?.path ?? null;
   const selectedTopicCardKey = selectedTarget?.cardKey ?? null;
@@ -79,33 +79,34 @@ export function useCanvasTopicNavigation({
 
   const panToTopic = useCallback(
     (card) => {
-      const wrap = canvasWrapElRef.current;
+      const wrap = getWrapElement();
       if (!wrap || !card) return;
+      const { scale, translate } = readTransform();
       const pan = buildCanvasTopicPan({
         card,
         showSummaryMode,
         summaryMetricsState,
         viewportHeight: wrap.clientHeight,
-        scale: scaleRef.current,
-        translate: translateRef.current,
+        scale,
+        translate,
       });
       if (!pan) return;
       setTransformNow(pan.scale, pan.translate);
       flashFocus();
     },
     [
-      canvasWrapElRef,
       flashFocus,
-      scaleRef,
+      getWrapElement,
+      readTransform,
       setTransformNow,
       showSummaryMode,
       summaryMetricsState,
-      translateRef,
     ],
   );
 
   const handleNavigate = useCallback(
     (position) => {
+      const { scale, translate } = readTransform();
       const navigation = resolveCanvasTopicNavigation({
         position,
         showSummaryMode,
@@ -114,7 +115,7 @@ export function useCanvasTopicNavigation({
         selectedLevel,
         selectedNavigationKey: selectedTopicCardKey,
         selectedTopicKey,
-        currentY: -translateRef.current.y / (scaleRef.current || 1),
+        currentY: -translate.y / scale,
         summaryMetricsState,
       });
       if (!navigation.handled) {
@@ -128,7 +129,7 @@ export function useCanvasTopicNavigation({
     [
       navigateCanvas,
       panToTopic,
-      scaleRef,
+      readTransform,
       selectedLevel,
       selectedTopicCardKey,
       selectedTopicKey,
@@ -136,7 +137,6 @@ export function useCanvasTopicNavigation({
       showSummaryMode,
       summaryCards,
       summaryMetricsState,
-      translateRef,
       zoomAdjustedTopicCards,
     ],
   );

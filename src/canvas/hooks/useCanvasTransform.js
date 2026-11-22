@@ -67,8 +67,8 @@ function readZoomPinLayout(content, viewportRect, appliedScale) {
  * and arrow/Home/End/PageUp/PageDown shortcuts.
  *
  * Returns flat render state (`translate`/`scale`, drag/focus flags) plus a
- * `viewport` handle of live transform refs and move callbacks for hooks that
- * drive the canvas.
+ * stable `viewport` command handle (live reads, view restore, user-movement flag,
+ * transform/zoom commands) for hooks that drive the canvas.
  * @param {object} [options] Hook options.
  * @param {object} [options.contentRef]
  * @param {(scale: number) => void} [options.onVisualScaleChange]
@@ -623,21 +623,58 @@ export function useCanvasTransform({ contentRef, onVisualScaleChange } = {}) {
     setTransformNow(scale, { x: nextX, y: translateRef.current?.y ?? 0 });
   }, [contentRef, scale, setTransformNow]);
 
-  // Stable imperative handle for live transform reads and movement. Render state
-  // remains separate so consumers update when scale or flags change.
+  // Live reads for per-frame and imperative callers; render state stays separate.
+  const readTransform = useCallback(
+    () => ({ scale: scaleRef.current || 1, translate: { ...translateRef.current } }),
+    [],
+  );
+  const readScale = useCallback(() => scaleRef.current || 1, []);
+  const getWrapElement = useCallback(() => canvasWrapElRef.current, []);
+  // User-requested programmatic moves (reset, view return) count as user movement
+  // so the one-time opening view does not override them.
+  const hasUserMoved = useCallback(() => userMovedCanvasRef.current, []);
+  const markUserMoved = useCallback(() => {
+    userMovedCanvasRef.current = true;
+  }, []);
+
+  // Animated jump to a captured view. Like zoomToTarget, suppress sentence measurement
+  // while the transition runs (scaleRef already holds the target mid-animation); the
+  // flag's false-flip schedules the post-settle pass.
+  const restoreView = useCallback(
+    ({ scale: nextScale, translate: nextTranslate }) => {
+      userMovedCanvasRef.current = true;
+      flashZoomingToTarget();
+      setTransformNow(nextScale, { ...nextTranslate });
+      flashFocus();
+    },
+    [flashFocus, flashZoomingToTarget, setTransformNow],
+  );
+
+  // Stable command handle for hooks that drive the canvas. Live refs stay private:
+  // consumers read through readTransform/readScale and move through commands.
   const viewport = useMemo(
     () => ({
-      scaleRef,
-      translateRef,
-      canvasWrapElRef,
-      userMovedCanvasRef,
+      readTransform,
+      readScale,
+      getWrapElement,
+      hasUserMoved,
+      markUserMoved,
       setTransformNow,
+      restoreView,
       zoomAtPoint,
       zoomToTarget,
-      // Exposed because view restore also animates a scale change via setTransformNow.
-      flashZoomingToTarget,
     }),
-    [setTransformNow, zoomAtPoint, zoomToTarget, flashZoomingToTarget],
+    [
+      readTransform,
+      readScale,
+      getWrapElement,
+      hasUserMoved,
+      markUserMoved,
+      setTransformNow,
+      restoreView,
+      zoomAtPoint,
+      zoomToTarget,
+    ],
   );
 
   // Clean up timers, pending frames and drag listeners on unmount.

@@ -81,12 +81,9 @@ function setup({ wrapRect, anchorRect, autoRaf = true }) {
 
   // Viewport handle built once, as the real hook memoizes it, so re-renders don't re-run effects keyed on it.
   const viewport = {
-    canvasWrapElRef: wrapElRef,
+    getWrapElement: () => wrapElRef.current,
+    readTransform: () => ({ scale: scaleRef.current, translate: { ...translateRef.current } }),
     setTransformNow,
-    translateRef,
-    scaleRef,
-    userMovedCanvasRef: { current: false },
-    zoomToTarget: vi.fn(),
   };
 
   const apiRef = { current: null };

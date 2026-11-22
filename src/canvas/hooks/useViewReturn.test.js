@@ -10,17 +10,15 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const cleanups = [];
 
 function setup(overrides = {}) {
+  const live = { scale: 0.4, translate: { x: 10, y: -200 } };
   const props = {
     showSummaryMode: false,
     setShowSummaryMode: vi.fn(),
     skipNextAlignment: vi.fn(),
-    flashFocus: vi.fn(),
+    // Live transform behind the handle's read command; tests move it to simulate jumps.
     viewport: {
-      scaleRef: { current: 0.4 },
-      translateRef: { current: { x: 10, y: -200 } },
-      userMovedCanvasRef: { current: false },
-      setTransformNow: vi.fn(),
-      flashZoomingToTarget: vi.fn(),
+      readTransform: () => ({ scale: live.scale, translate: { ...live.translate } }),
+      restoreView: vi.fn(),
     },
     ...overrides,
   };
@@ -39,6 +37,7 @@ function setup(overrides = {}) {
   act(() => root.render(createElement(Harness)));
   const rendered = {
     props,
+    live,
     result,
     rerender(nextProps) {
       currentProps = { ...currentProps, ...nextProps };
@@ -63,7 +62,7 @@ describe('useViewReturn', () => {
     expect(ctx.result.current.hasReturnPoint).toBe(false);
 
     act(() => ctx.result.current.returnToCapturedView());
-    expect(ctx.props.viewport.setTransformNow).not.toHaveBeenCalled();
+    expect(ctx.props.viewport.restoreView).not.toHaveBeenCalled();
   });
 
   it('restores the captured scale and translate within the same mode', () => {
@@ -72,33 +71,36 @@ describe('useViewReturn', () => {
     expect(ctx.result.current.hasReturnPoint).toBe(true);
 
     // The jump moves the canvas.
-    ctx.props.viewport.scaleRef.current = 1.4;
-    ctx.props.viewport.translateRef.current = { x: -300, y: -900 };
+    ctx.live.scale = 1.4;
+    ctx.live.translate = { x: -300, y: -900 };
 
     act(() => ctx.result.current.returnToCapturedView());
-    expect(ctx.props.viewport.setTransformNow).toHaveBeenCalledWith(0.4, { x: 10, y: -200 });
-    expect(ctx.props.flashFocus).toHaveBeenCalledOnce();
-    expect(ctx.props.viewport.userMovedCanvasRef.current).toBe(true);
+    expect(ctx.props.viewport.restoreView).toHaveBeenCalledWith(
+      expect.objectContaining({ scale: 0.4, translate: { x: 10, y: -200 } }),
+    );
+    expect(ctx.props.viewport.restoreView).toHaveBeenCalledOnce();
     expect(ctx.props.setShowSummaryMode).not.toHaveBeenCalled();
-    // Same window zoomToTarget guards: rects animate while scaleRef holds the restored scale.
-    expect(ctx.props.viewport.flashZoomingToTarget).toHaveBeenCalledOnce();
   });
 
   it('swaps, so the control bounces between the two views', () => {
     const ctx = setup();
     act(() => ctx.result.current.captureReturnPoint());
     const zoomedIn = { x: -300, y: -900 };
-    ctx.props.viewport.scaleRef.current = 1.4;
-    ctx.props.viewport.translateRef.current = zoomedIn;
+    ctx.live.scale = 1.4;
+    ctx.live.translate = zoomedIn;
 
     act(() => ctx.result.current.returnToCapturedView());
-    expect(ctx.props.viewport.setTransformNow).toHaveBeenLastCalledWith(0.4, { x: 10, y: -200 });
+    expect(ctx.props.viewport.restoreView).toHaveBeenLastCalledWith(
+      expect.objectContaining({ scale: 0.4, translate: { x: 10, y: -200 } }),
+    );
 
     // Back at the reading view; the jump target is now what we return to.
-    ctx.props.viewport.scaleRef.current = 0.4;
-    ctx.props.viewport.translateRef.current = { x: 10, y: -200 };
+    ctx.live.scale = 0.4;
+    ctx.live.translate = { x: 10, y: -200 };
     act(() => ctx.result.current.returnToCapturedView());
-    expect(ctx.props.viewport.setTransformNow).toHaveBeenLastCalledWith(1.4, zoomedIn);
+    expect(ctx.props.viewport.restoreView).toHaveBeenLastCalledWith(
+      expect.objectContaining({ scale: 1.4, translate: zoomedIn }),
+    );
   });
 
   it('defers the restore until a captured summary mode has been re-entered', () => {
@@ -107,19 +109,20 @@ describe('useViewReturn', () => {
 
     // "Show source sentences" left summary mode and zoomed the article.
     ctx.rerender({ showSummaryMode: false });
-    ctx.props.viewport.scaleRef.current = 1.4;
-    ctx.props.viewport.translateRef.current = { x: -300, y: -900 };
+    ctx.live.scale = 1.4;
+    ctx.live.translate = { x: -300, y: -900 };
 
     act(() => ctx.result.current.returnToCapturedView());
     expect(ctx.props.setShowSummaryMode).toHaveBeenCalledWith(true);
     expect(ctx.props.skipNextAlignment).toHaveBeenCalledOnce();
     // The transform means nothing until the summary cards are mounted again.
-    expect(ctx.props.viewport.setTransformNow).not.toHaveBeenCalled();
-    expect(ctx.props.viewport.flashZoomingToTarget).not.toHaveBeenCalled();
+    expect(ctx.props.viewport.restoreView).not.toHaveBeenCalled();
 
     ctx.rerender({ showSummaryMode: true });
-    expect(ctx.props.viewport.setTransformNow).toHaveBeenCalledWith(0.4, { x: 10, y: -200 });
-    expect(ctx.props.viewport.flashZoomingToTarget).toHaveBeenCalledOnce();
+    expect(ctx.props.viewport.restoreView).toHaveBeenCalledWith(
+      expect.objectContaining({ scale: 0.4, translate: { x: 10, y: -200 } }),
+    );
+    expect(ctx.props.viewport.restoreView).toHaveBeenCalledOnce();
   });
 
   it('keeps capture and return stable across mode changes', () => {
@@ -157,25 +160,27 @@ describe('useViewReturn', () => {
       act(() => window.dispatchEvent(event));
       expect(event.defaultPrevented).toBe(!!options.handled);
     }
-    expect(ctx.props.viewport.setTransformNow).not.toHaveBeenCalled();
+    expect(ctx.props.viewport.restoreView).not.toHaveBeenCalled();
   });
 
   it('returns on Backspace, but not while typing', () => {
     const ctx = setup();
     act(() => ctx.result.current.captureReturnPoint());
-    ctx.props.viewport.scaleRef.current = 1.4;
+    ctx.live.scale = 1.4;
 
     const textarea = document.createElement('textarea');
     document.body.appendChild(textarea);
     act(() => {
       textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true }));
     });
-    expect(ctx.props.viewport.setTransformNow).not.toHaveBeenCalled();
+    expect(ctx.props.viewport.restoreView).not.toHaveBeenCalled();
     textarea.remove();
 
     act(() => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace' }));
     });
-    expect(ctx.props.viewport.setTransformNow).toHaveBeenCalledWith(0.4, { x: 10, y: -200 });
+    expect(ctx.props.viewport.restoreView).toHaveBeenCalledWith(
+      expect.objectContaining({ scale: 0.4, translate: { x: 10, y: -200 } }),
+    );
   });
 });

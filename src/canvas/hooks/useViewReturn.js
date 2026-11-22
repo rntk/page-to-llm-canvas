@@ -10,11 +10,10 @@ import { isTypingTarget } from '../../utils/isTypingTarget.js';
  * current views, so the same control toggles between them.
  *
  * @param {object} params
- * @param {object} params.viewport Imperative canvas handle (transform refs + setTransformNow).
+ * @param {object} params.viewport Canvas command handle (readTransform + restoreView).
  * @param {boolean} params.showSummaryMode Currently committed mode.
  * @param {function(boolean): void} params.setShowSummaryMode
  * @param {function(): void} params.skipNextAlignment Suppresses the alignment hook for a restore-driven mode switch.
- * @param {function(): void} params.flashFocus
  * @returns {{hasReturnPoint: boolean, captureReturnPoint: function(): void, returnToCapturedView: function(): void}}
  */
 export function useViewReturn({
@@ -22,10 +21,8 @@ export function useViewReturn({
   showSummaryMode,
   setShowSummaryMode,
   skipNextAlignment,
-  flashFocus,
 }) {
-  const { scaleRef, translateRef, setTransformNow, userMovedCanvasRef, flashZoomingToTarget } =
-    viewport;
+  const { readTransform, restoreView } = viewport;
   // Capture in a ref; only hasReturnPoint needs to trigger a render.
   const snapshotRef = useRef(null);
   // Restore deferred until a mode switch mounts its content (as zoom-to-sentence does).
@@ -38,31 +35,14 @@ export function useViewReturn({
   }, [showSummaryMode]);
 
   const readCurrentView = useCallback(
-    () => ({
-      scale: scaleRef.current || 1,
-      translate: { ...translateRef.current },
-      showSummaryMode: showSummaryModeRef.current,
-    }),
-    [scaleRef, translateRef],
+    () => ({ ...readTransform(), showSummaryMode: showSummaryModeRef.current }),
+    [readTransform],
   );
 
   const captureReturnPoint = useCallback(() => {
     snapshotRef.current = readCurrentView();
     setHasReturnPoint(true);
   }, [readCurrentView]);
-
-  const applyView = useCallback(
-    (view) => {
-      userMovedCanvasRef.current = true;
-      // The animated restore (flashFocus enables the 320ms transition) leaves scaleRef at the
-      // target scale mid-animation, so suppress sentence measurement as zoomToTarget does;
-      // the flag's false-flip schedules the post-settle pass.
-      flashZoomingToTarget();
-      setTransformNow(view.scale, view.translate);
-      flashFocus();
-    },
-    [setTransformNow, flashFocus, userMovedCanvasRef, flashZoomingToTarget],
-  );
 
   const returnToCapturedView = useCallback(() => {
     const target = snapshotRef.current;
@@ -77,16 +57,16 @@ export function useViewReturn({
       setShowSummaryMode(target.showSummaryMode);
       return;
     }
-    applyView(target);
-  }, [applyView, readCurrentView, setShowSummaryMode, skipNextAlignment]);
+    restoreView(target);
+  }, [readCurrentView, restoreView, setShowSummaryMode, skipNextAlignment]);
 
   // Deferred half of a cross-mode restore, once the target mode's content has mounted.
   useEffect(() => {
     const pending = pendingRestoreRef.current;
     if (!pending || pending.showSummaryMode !== showSummaryMode) return;
     pendingRestoreRef.current = null;
-    applyView(pending);
-  }, [showSummaryMode, applyView]);
+    restoreView(pending);
+  }, [showSummaryMode, restoreView]);
 
   // Backspace is the keyboard way back; Escape (cancels selection/unlocks preview) and arrows (pan) are taken.
   useEffect(() => {
