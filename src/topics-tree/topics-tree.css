@@ -379,9 +379,9 @@
   width: max-content;
   max-width: calc(var(--tt-title-width, 100%) * var(--tt-container-zoom, 1));
   padding: 0.2em 0.35em;
-  border: 1px solid var(--th-border);
+  border: 1px solid transparent;
   border-left-width: 3px;
-  background: var(--th-surface);
+  background: var(--th-page-bg);
   color: var(--th-title);
   font-family: var(--font-voice, serif);
   font-size: max(
@@ -421,17 +421,12 @@
   letter-spacing: 0.04em;
 }
 
-.tt-node:hover .tt-node__zoom-title {
-  border-color: var(--th-border-strong);
-  background: linear-gradient(var(--th-hover), var(--th-hover)), var(--th-surface);
-}
-
 .tt-node.is-on-path .tt-node__zoom-title {
-  border-color: var(--th-border-strong);
+  border-left-color: var(--th-border-strong);
 }
 
 .tt-node.is-selected .tt-node__zoom-title {
-  border-color: var(--th-accent);
+  border-left-color: var(--th-accent);
 }
 
 .tt-stage.is-title-zoomed .tt-node {
@@ -571,14 +566,12 @@
   width: calc(var(--tt-card-width, 360px) * var(--tt-container-zoom, 1));
   padding: 0.25em 0.45em;
   overflow: hidden;
-  border: 1px solid var(--th-border);
-  background: var(--th-surface);
+  border: 1px solid transparent;
+  background: var(--th-page-bg);
   font-size: var(--tt-card-zoom-font);
   cursor: move;
   user-select: none;
-  transition:
-    border-color var(--th-dur-fast) var(--th-ease),
-    box-shadow var(--th-dur-fast) var(--th-ease);
+  transition: border-color var(--th-dur-fast) var(--th-ease);
 }
 
 .tt-card__zoom-kicker {
@@ -608,12 +601,11 @@
 }
 
 .tt-card.is-on-path .tt-card__zoom-title {
-  border-color: var(--th-border-strong);
+  border-left-color: var(--th-border-strong);
 }
 
 .tt-card.is-selected .tt-card__zoom-title {
-  border-color: var(--th-accent);
-  box-shadow: 0 0 0 1px var(--th-accent);
+  border-left-color: var(--th-accent);
 }
 
 .tt-stage.is-title-zoomed .tt-card {

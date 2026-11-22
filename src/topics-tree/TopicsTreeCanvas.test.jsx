@@ -537,6 +537,22 @@ it('hides inactive overview controls from tab order, preserves card move/resize 
     const card = container.querySelector('.tt-card');
     expect(card.getAttribute('aria-label')).toBe('Source: Branch');
 
+    container.style.setProperty('--th-page-bg', 'rgb(240, 238, 235)');
+    container.style.setProperty('--th-surface', 'white');
+    container.style.setProperty('--th-border', 'gray');
+    const canvasBackground = getComputedStyle(canvas).backgroundColor;
+    expect(canvasBackground).toBe('rgb(240, 238, 235)');
+    for (const title of [
+      rootNode.querySelector('.tt-node__zoom-title'),
+      card.querySelector('.tt-card__zoom-title'),
+    ]) {
+      const titleStyle = getComputedStyle(title);
+      expect(titleStyle.backgroundColor).toBe(canvasBackground);
+      expect(titleStyle.borderTopColor).toBe('transparent');
+      expect(titleStyle.borderRightColor).toBe('transparent');
+      expect(titleStyle.borderBottomColor).toBe('transparent');
+    }
+
     // Hidden controls inside overview nodes/cards are visibility: hidden (out of tab order),
     // while topic titles are not visibility-hidden (keeping their accessible name) and card resize stays active.
     const rootTitleStyle = getComputedStyle(rootNode.querySelector('.tt-node__title'));
