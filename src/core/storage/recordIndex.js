@@ -139,6 +139,7 @@ export async function syncIndexMeta(key, patch, fallbackMeta) {
  * @returns {object} Repaired lightweight index projection.
  */
 function mergeAuthoritativeMetaIntoProjection(meta, cached = {}) {
+  // Keep in sync with AUTHORITATIVE_PROJECTION_FIELDS below.
   return {
     ...cached,
     sourceUrl: meta.sourceUrl,
@@ -207,6 +208,43 @@ async function repairAllIndexProjections() {
   });
 }
 
+/** Fields mergeAuthoritativeMetaIntoProjection() overwrites from the meta document. */
+const AUTHORITATIVE_PROJECTION_FIELDS = [
+  'sourceUrl',
+  'topicsRevision',
+  'createdAt',
+  'status',
+  'progress',
+  'error',
+  'summariesDisabled',
+  'summariesIncomplete',
+  'resplitNotice',
+];
+
+/**
+ * Whether merging authoritative meta changed a cached projection. Equivalent to
+ * comparing their JSON, but only inspects the overwritten fields, so the cached
+ * snippet is never serialized.
+ * @param {object|undefined} cached Existing index projection.
+ * @param {object} merged Result of mergeAuthoritativeMetaIntoProjection().
+ * @returns {boolean}
+ */
+function projectionDiffers(cached, merged) {
+  if (!cached || typeof cached !== 'object') return true;
+  for (const f of AUTHORITATIVE_PROJECTION_FIELDS) {
+    const a = cached[f];
+    const b = merged[f];
+    if (a === b) continue;
+    // Object values (e.g. error, resplitNotice) are fresh instances per read.
+    if (a && b && typeof a === 'object' && typeof b === 'object') {
+      if (JSON.stringify(a) !== JSON.stringify(b)) return true;
+      continue;
+    }
+    return true;
+  }
+  return false;
+}
+
 function shouldAttemptIndexProjectionRepair(now = Date.now()) {
   if (lastIndexProjectionRepairAt !== null) {
     const elapsed = now - lastIndexProjectionRepairAt;
@@ -238,19 +276,25 @@ export async function listRecords() {
   const metaKeys = idx.keys.map(metaStorageKey);
   const metas = metaKeys.length ? await getLocal(metaKeys) : {};
   const out = [];
-  const repaired = { keys: [], meta: {} };
+  // Detect projection drift while merging; repairAllIndexProjections() does
+  // the full rebuild-and-compare only when a repair is actually attempted.
+  let needsRepair = false;
   for (const k of idx.keys) {
     const authoritativeMeta = metas[metaStorageKey(k)];
-    if (!isCurrentRecordMeta(authoritativeMeta)) continue;
+    if (!isCurrentRecordMeta(authoritativeMeta)) {
+      needsRepair = true;
+      continue;
+    }
     const meta = mergeAuthoritativeMetaIntoProjection(authoritativeMeta, idx.meta[k]);
-    repaired.keys.push(k);
-    repaired.meta[k] = meta;
+    if (!needsRepair && projectionDiffers(idx.meta[k], meta)) needsRepair = true;
     // snippetRevision is cache bookkeeping for reconciliation, not part of the
     // record a listing caller sees.
     const { snippetRevision: _snippetRevision, ...view } = meta;
     out.push({ key: k, ...view });
   }
-  if (JSON.stringify(repaired) !== JSON.stringify(idx) && shouldAttemptIndexProjectionRepair()) {
+  // Orphaned meta entries (no matching key) are dropped by a repair too.
+  if (!needsRepair && Object.keys(idx.meta).length !== out.length) needsRepair = true;
+  if (needsRepair && shouldAttemptIndexProjectionRepair()) {
     await repairAllIndexProjections();
   }
   return out;
