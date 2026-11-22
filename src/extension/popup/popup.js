@@ -8,6 +8,7 @@ import {
   applyPipelineFailures,
   isInFlightPipelineStatus,
   PIPELINE_STATUS,
+  RAIL_MODE,
 } from '../../shared/runtime/contracts.js';
 import { browserFileHost } from '../../shared/runtime/browserHosts.js';
 import {
@@ -165,19 +166,19 @@ export function getRecordActions(record) {
       },
       {
         label: 'Topics',
-        mode: 'topics',
+        mode: RAIL_MODE.TOPICS,
         ...(useYouTubeRail ? { rail: 'youtube' } : {}),
         description: 'View extracted topics from this analysis.',
       },
       {
         label: 'Summaries',
-        mode: 'summaries',
+        mode: RAIL_MODE.SUMMARIES,
         ...(useYouTubeRail ? { rail: 'youtube' } : {}),
         description: 'View generated summaries for selected content.',
       },
       {
         label: 'Chat',
-        mode: 'chat',
+        mode: RAIL_MODE.CHAT,
         ...(useYouTubeRail ? { rail: 'youtube' } : {}),
         description: 'Open chat mode to ask questions about this page.',
       },

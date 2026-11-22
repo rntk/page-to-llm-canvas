@@ -56,7 +56,7 @@ describe('in-page rail surface', () => {
 
   it('closes the rail when React reports an uncaught render error', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const surface = manager.createSurface({ state: { mode: 'topics' } });
+    const surface = manager.createSurface({ initialMode: 'topics' });
     const [container, options] = createRoot.mock.calls.at(-1);
     expect(container).toBe(surface.railEl);
     expect(document.getElementById('pagetollm-in-page-rail')).not.toBeNull();
@@ -68,16 +68,14 @@ describe('in-page rail surface', () => {
     expect(document.body.classList.contains('pagetollm-rail-open')).toBe(false);
 
     // A late report from the closed root must not touch a newer rail.
-    const next = manager.createSurface({ state: { mode: 'topics' } });
+    const next = manager.createSurface({ initialMode: 'topics' });
     options.onUncaughtError(new Error('late'));
     expect(next.isClosed()).toBe(false);
     errorSpy.mockRestore();
   });
 
   it('creates a themed topic rail with the expected attributes and bookkeeping', () => {
-    const state = { mode: 'topics' };
-
-    const surface = manager.createSurface({ state });
+    const surface = manager.createSurface({ initialMode: 'topics' });
 
     expect(surface.railEl).toBe(document.getElementById('pagetollm-in-page-rail'));
     expect(surface.railEl.tagName).toBe('ASIDE');
@@ -95,14 +93,14 @@ describe('in-page rail surface', () => {
   it('injects the rail stylesheet on mount and removes it on close', () => {
     expect(document.getElementById('pagetollm-rail-styles')).toBeNull();
 
-    manager.createSurface({ state: { mode: 'topics' } });
+    manager.createSurface({ initialMode: 'topics' });
     const styleEl = document.getElementById('pagetollm-rail-styles');
 
     expect(styleEl).not.toBeNull();
     expect(styleEl.tagName).toBe('STYLE');
 
     // Re-mounting reuses the sheet rather than stacking duplicates.
-    manager.createSurface({ state: { mode: 'chat' } });
+    manager.createSurface({ initialMode: 'chat' });
     expect(document.querySelectorAll('#pagetollm-rail-styles')).toHaveLength(1);
 
     manager.close();
@@ -113,7 +111,7 @@ describe('in-page rail surface', () => {
     const body = document.body;
     body.remove();
     try {
-      expect(manager.createSurface({ state: { mode: 'topics' } })).toBeNull();
+      expect(manager.createSurface({ initialMode: 'topics' })).toBeNull();
       expect(document.getElementById('pagetollm-in-page-rail')).toBeNull();
       expect(createRoot).not.toHaveBeenCalled();
       expect(trackMountedSurface).not.toHaveBeenCalled();
@@ -133,7 +131,7 @@ describe('in-page rail surface', () => {
   });
 
   it('tags YouTube rails and reserves the mode-specific width', () => {
-    const surface = manager.createSurface({ state: { mode: 'summaries' }, youtube: true });
+    const surface = manager.createSurface({ initialMode: 'summaries', youtube: true });
 
     expect(surface.railEl.dataset).toMatchObject({ mode: 'summaries', youtube: 'true' });
     expect(surface.railEl.style.width).toBe('340px');
@@ -144,37 +142,40 @@ describe('in-page rail surface', () => {
   });
 
   it('mounts on the right by default and moves the reserve to the left on request', () => {
-    const state = { mode: 'topics' };
-    const surface = manager.createSurface({ state });
+    const surface = manager.createSurface({ initialMode: 'topics' });
     expect(surface.railEl.dataset.side).toBe('right');
     expect(document.body.classList.contains('pagetollm-rail-left')).toBe(false);
 
-    surface.setRailSide('left');
-    expect(state.side).toBe('left');
+    surface.setSide('left');
+    expect(surface.side).toBe('left');
     expect(surface.railEl.dataset.side).toBe('left');
     expect(document.body.classList.contains('pagetollm-rail-left')).toBe(true);
 
-    surface.setRailSide('bogus');
+    surface.setSide('bogus');
     expect(surface.railEl.dataset.side).toBe('right');
     expect(document.body.classList.contains('pagetollm-rail-left')).toBe(false);
   });
 
   it('opens the next rail on the side last chosen and clears the class on close', () => {
-    manager.createSurface({ state: { mode: 'topics' } }).setRailSide('left');
-    const next = manager.createSurface({ state: { mode: 'chat' } });
+    manager.createSurface({ initialMode: 'topics' }).setSide('left');
+    const next = manager.createSurface({ initialMode: 'chat' });
     expect(next.railEl.dataset.side).toBe('left');
     expect(document.body.classList.contains('pagetollm-rail-left')).toBe(true);
 
     manager.close();
     expect(document.body.classList.contains('pagetollm-rail-left')).toBe(false);
+
+    const reopened = manager.createSurface();
+    expect(reopened.side).toBe('left');
+    expect(document.body.classList.contains('pagetollm-rail-left')).toBe(true);
   });
 
   it('tears down an existing rail before mounting a replacement', () => {
     const firstRoot = { unmount: vi.fn() };
     createRoot.mockReturnValueOnce(firstRoot);
-    const first = manager.createSurface({ state: { mode: 'topics' } });
+    const first = manager.createSurface({ initialMode: 'topics' });
 
-    const second = manager.createSurface({ state: { mode: 'chat' } });
+    const second = manager.createSurface({ initialMode: 'chat' });
 
     expect(firstRoot.unmount).toHaveBeenCalledOnce();
     expect(first.isClosed()).toBe(true);
@@ -183,18 +184,21 @@ describe('in-page rail surface', () => {
     expect(document.querySelectorAll('#pagetollm-in-page-rail')).toHaveLength(1);
   });
 
-  it('uses the topics width for unknown modes and updates width when state changes', () => {
-    const state = { mode: 'unknown' };
-    const surface = manager.createSurface({ state });
+  it('uses the topics width for unknown modes and updates mode and width together', () => {
+    const surface = manager.createSurface({ initialMode: 'unknown' });
 
+    expect(surface.mode).toBe('topics');
+    expect(surface.railEl.dataset.mode).toBe('topics');
     expect(surface.railEl.style.width).toBe('260px');
     expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-reserve')).toBe(
       '276px',
     );
 
-    state.mode = 'chat';
-    surface.setRailWidthForMode();
+    expect(surface.setMode('chat')).toBe(true);
+    expect(surface.setMode('chat')).toBe(false);
 
+    expect(surface.mode).toBe('chat');
+    expect(surface.railEl.dataset.mode).toBe('chat');
     expect(surface.railEl.style.width).toBe('380px');
     expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-reserve')).toBe(
       '396px',
@@ -205,7 +209,7 @@ describe('in-page rail surface', () => {
     const onTeardown = vi.fn();
     const root = { unmount: vi.fn() };
     createRoot.mockReturnValueOnce(root);
-    const surface = manager.createSurface({ state: { mode: 'chat' }, onTeardown });
+    const surface = manager.createSurface({ initialMode: 'chat', onTeardown });
 
     manager.close();
 
@@ -218,16 +222,39 @@ describe('in-page rail surface', () => {
     expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-reserve')).toBe('');
     expect(surface.isClosed()).toBe(true);
 
-    surface.setRailWidthForMode();
+    expect(surface.setMode('summaries')).toBe(false);
+    expect(surface.setSide('left')).toBe(false);
+    expect(surface.mode).toBe('chat');
+    expect(surface.side).toBe('right');
+    expect(surface.railEl.dataset).toMatchObject({ mode: 'chat', side: 'right' });
     expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-width')).toBe('');
+    expect(manager.createSurface().side).toBe('right');
+  });
+
+  it('keeps the latest load current through replacement and invalidates it on close', () => {
+    const firstLoad = manager.beginLoad();
+    const first = manager.createSurface();
+    const nextLoad = manager.beginLoad();
+
+    expect(firstLoad.isStale()).toBe(true);
+    manager.createSurface({ initialMode: 'chat' });
+
+    expect(first.isClosed()).toBe(true);
+    expect(nextLoad.isStale()).toBe(false);
+    manager.close();
+    expect(nextLoad.isStale()).toBe(true);
+
+    const pendingLoad = manager.beginLoad();
+    manager.close();
+    expect(pendingLoad.isStale()).toBe(true);
   });
 
   it('invalidates loading work without removing a rail owned by another manager', () => {
-    const surface = manager.createSurface({ state: { mode: 'topics' } });
+    const surface = manager.createSurface({ initialMode: 'topics' });
     const otherRoot = { unmount: vi.fn() };
     createRoot.mockReturnValueOnce(otherRoot);
     const other = createRailSurfaceManager({ document, rootFactory: createRoot, preferences });
-    const otherSurface = other.createSurface({ state: { mode: 'chat' } });
+    const otherSurface = other.createSurface({ initialMode: 'chat' });
 
     const guard = manager.beginLoad();
     manager.close();
@@ -248,7 +275,7 @@ describe('in-page rail surface', () => {
     stale.id = 'pagetollm-in-page-rail';
     document.documentElement.appendChild(stale);
 
-    const surface = manager.createSurface({ state: { mode: 'topics' } });
+    const surface = manager.createSurface({ initialMode: 'topics' });
 
     expect(stale.isConnected).toBe(false);
     expect(surface.railEl.isConnected).toBe(true);
@@ -262,7 +289,7 @@ describe('in-page rail surface', () => {
     };
     createRoot.mockReturnValueOnce(root);
     const onTeardown = vi.fn();
-    manager.createSurface({ state: { mode: 'topics' }, onTeardown });
+    manager.createSurface({ initialMode: 'topics', onTeardown });
 
     expect(() => manager.close()).not.toThrow();
     expect(onTeardown).toHaveBeenCalledOnce();
@@ -316,7 +343,7 @@ describe('in-page rail surface', () => {
       // No overflow before the reserve, but any reserve widens a fixed-width body past the viewport.
       mockReserveAwareMetrics(900, 1000);
 
-      const surface = manager.createSurface({ state: { mode: 'topics' } });
+      const surface = manager.createSurface({ initialMode: 'topics' });
 
       expect(document.body.classList.contains('pagetollm-rail-open')).toBe(true);
       expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(true);
@@ -326,7 +353,7 @@ describe('in-page rail surface', () => {
 
       // Falsy path: clearing the injected overflow restores the normal box model.
       mockMetrics(1000, 1000);
-      surface.setRailWidthForMode();
+      surface.setMode('summaries');
       expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(false);
 
       clearMetrics();
@@ -337,24 +364,22 @@ describe('in-page rail surface', () => {
       // Pre-existing overflow must not be mistaken for overflow we caused.
       mockMetrics(1200, 1000);
 
-      const surface = manager.createSurface({ state: { mode: 'topics' } });
+      const surface = manager.createSurface({ initialMode: 'topics' });
 
       expect(document.body.classList.contains('pagetollm-rail-open')).toBe(true);
       expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(false);
 
       // Even when the mode (and therefore the reserve) changes, the guard stays latched.
-      surface.setRailWidthForMode();
+      surface.setMode('summaries');
       expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(false);
 
       // Close the overflowed surface, then open a second via the same manager with a
-      // new state object to prove the per-surface capture.
+      // different initial mode to prove the per-surface capture.
       manager.close();
       clearMetrics();
       mockMetrics(1200, 1000);
-      const secondState = { mode: 'chat' };
-      const second = manager.createSurface({ state: secondState });
-      secondState.mode = 'summaries';
-      second.setRailWidthForMode();
+      const second = manager.createSurface({ initialMode: 'chat' });
+      second.setMode('summaries');
       expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(false);
 
       clearMetrics();
@@ -364,31 +389,26 @@ describe('in-page rail surface', () => {
     it('re-evaluates fit whenever the reserve width changes across modes', () => {
       // Reserve-aware overflow: topics (276px) keeps 724+276=1000 within 1000px, but chat (396px) pushes it over.
       mockReserveAwareMetrics(724, 1000);
-      const state = { mode: 'topics' };
-
-      const surface = manager.createSurface({ state });
+      const surface = manager.createSurface({ initialMode: 'topics' });
 
       expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(false);
       expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-reserve')).toBe(
         '276px',
       );
 
-      state.mode = 'chat';
-      surface.setRailWidthForMode();
+      surface.setMode('chat');
       expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-reserve')).toBe(
         '396px',
       );
       expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(true);
 
-      state.mode = 'summaries';
-      surface.setRailWidthForMode();
+      surface.setMode('summaries');
       expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-reserve')).toBe(
         '356px',
       );
       expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(true);
 
-      state.mode = 'topics';
-      surface.setRailWidthForMode();
+      surface.setMode('topics');
       expect(document.documentElement.style.getPropertyValue('--pagetollm-rail-reserve')).toBe(
         '276px',
       );
@@ -396,13 +416,11 @@ describe('in-page rail surface', () => {
 
       // Explicit overflow without reserve-awareness also toggles on every width change.
       mockMetrics(1100, 1000);
-      state.mode = 'chat';
-      surface.setRailWidthForMode();
+      surface.setMode('chat');
       expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(true);
 
       mockMetrics(1000, 1000);
-      state.mode = 'summaries';
-      surface.setRailWidthForMode();
+      surface.setMode('summaries');
       expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(false);
 
       clearMetrics();
@@ -411,7 +429,7 @@ describe('in-page rail surface', () => {
 
     it('clears fit on close and does not leak it to the next surface', () => {
       mockReserveAwareMetrics(900, 1000);
-      const first = manager.createSurface({ state: { mode: 'chat' } });
+      const first = manager.createSurface({ initialMode: 'chat' });
       expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(true);
 
       manager.close();
@@ -421,7 +439,7 @@ describe('in-page rail surface', () => {
 
       // Next surface starts fresh: even with the same overflow, pre-overflow is re-captured.
       mockMetrics(1000, 1000);
-      const second = manager.createSurface({ state: { mode: 'topics' } });
+      const second = manager.createSurface({ initialMode: 'topics' });
       expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(false);
       expect(first.isClosed()).toBe(true);
       expect(second.isClosed()).toBe(false);
@@ -432,7 +450,7 @@ describe('in-page rail surface', () => {
 
     it('does not re-add fit after the rail is closed (railClosed guard)', () => {
       mockReserveAwareMetrics(900, 1000);
-      const surface = manager.createSurface({ state: { mode: 'topics' } });
+      const surface = manager.createSurface({ initialMode: 'topics' });
       expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(true);
 
       manager.close();
@@ -440,7 +458,7 @@ describe('in-page rail surface', () => {
 
       // Mutating mocked overflow and calling the stale handle must not resurrect the class.
       mockMetrics(1200, 1000);
-      surface.setRailWidthForMode();
+      surface.setMode('summaries');
       expect(document.body.classList.contains('pagetollm-rail-fit')).toBe(false);
       expect(document.body.classList.contains('pagetollm-rail-open')).toBe(false);
 

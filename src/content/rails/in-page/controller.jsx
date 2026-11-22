@@ -13,7 +13,8 @@ import { buildRailCards } from './railProjection.js';
 import { canDrawNotes } from './marginNotes.js';
 import { findPickedElements, assessRecordForRail } from '../shared/recordFetch.js';
 import { createRecordLoader } from '../shared/recordLoader.js';
-import { createRailState, normalizeRailMode, normalizeRailSide } from '../shared/railState.js';
+import { resolveRailLevel } from '../shared/railState.js';
+import { RAIL_MODE } from '../../../shared/runtime/contracts.js';
 import { browserRuntimeMessenger } from '../../../utils/runtimeMessages.js';
 import { createLogger } from '../../../shared/runtime/log.js';
 import { MSG } from '../../../shared/runtime/messages.js';
@@ -45,12 +46,12 @@ export function createInPageRailController({
   const { alert, confirm } = { ...defaultDialogs, ...(dialogs ?? {}) };
   const recordLoader = createRecordLoader({ surfaceManager, runtimeMessenger, alert, logger });
 
-  async function openInPageRail(rec, initialMode = 'topics', options = {}) {
+  async function openInPageRail(rec, initialMode = RAIL_MODE.TOPICS, options = {}) {
     // Re-fetch even when the widget supplied a record.
     const { guard, assessment } = await recordLoader.load(rec.key, {
       assess: assessRecordForRail,
     });
-    if (!assessment) return false;
+    if (!assessment || guard.isStale()) return false;
     if (assessment.kind === 'no_selectors') {
       const openCanvas = confirm(
         'PageToLLM: This record has no saved selectors.\n\nWould you like to open it in the full canvas view instead?',
@@ -86,9 +87,9 @@ export function createInPageRailController({
     let unrelatedResolveId = 0;
     let pendingMutations = [];
 
-    const state = createRailState(initialMode, options);
+    let selectedLevel = resolveRailLevel(options);
     // Use cards when margin notes are hard to read on this page.
-    state.topicLayout = 'notes';
+    let preferredTopicLayout = 'notes';
 
     const maxLevel = computeMaxTopicLevel(record);
 
@@ -101,7 +102,7 @@ export function createInPageRailController({
     });
 
     const surface = surfaceManager.createSurface({
-      state,
+      initialMode,
       onTeardown: () => {
         mutationObserver?.disconnect();
         if (mutationFrameId) contentWindow.cancelAnimationFrame(mutationFrameId);
@@ -115,8 +116,8 @@ export function createInPageRailController({
       highlighter.destroy();
       return false;
     }
-    const { railEl, railRoot, setRailWidthForMode, setRailSide, isClosed } = surface;
-    railEl.dataset.topicLayout = state.topicLayout;
+    const { railEl, railRoot, setMode, setSide, isClosed } = surface;
+    railEl.dataset.topicLayout = preferredTopicLayout;
 
     const topicActions = [
       createResplitAction({
@@ -129,10 +130,10 @@ export function createInPageRailController({
 
     let railOriginTop;
 
-    const projectRail = (level = state.selectedLevel) =>
+    const projectRail = (level = selectedLevel) =>
       buildRailCards({
         record,
-        mode: state.mode,
+        mode: surface.mode,
         selectedLevel: level,
         sentenceRanges,
         wordEntries,
@@ -142,13 +143,7 @@ export function createInPageRailController({
       });
 
     const handleSelectMode = (mode) => {
-      if (isClosed()) return;
-      const next = normalizeRailMode(mode);
-      if (state.mode === next) return;
-      // clearAll removes both topic and chat highlights.
-      state.mode = next;
-      railEl.dataset.mode = state.mode;
-      setRailWidthForMode();
+      if (!setMode(mode)) return;
       highlighter.clearAll();
       // Chat's sticky body may have a different viewport origin.
       renderRail({ measureOnly: true });
@@ -157,12 +152,9 @@ export function createInPageRailController({
     };
 
     const handleSelectSide = (side) => {
-      if (isClosed()) return;
-      const next = normalizeRailSide(side);
-      if (state.side === next) return;
-      setRailSide(next);
+      if (!setSide(side)) return;
       // Chat citations stay selected in the mounted chat; their ranges follow the reflow.
-      if (state.mode !== 'chat') highlighter.clearAll();
+      if (surface.mode !== RAIL_MODE.CHAT) highlighter.clearAll();
       // The page reflows around the moved reserve; re-measure before projecting.
       renderRail({ measureOnly: true });
       measureRailOrigin();
@@ -171,8 +163,8 @@ export function createInPageRailController({
 
     const handleSelectTopicLayout = (layout) => {
       if (isClosed()) return;
-      if (state.topicLayout === layout) return;
-      state.topicLayout = layout;
+      if (preferredTopicLayout === layout) return;
+      preferredTopicLayout = layout;
       railEl.dataset.topicLayout = layout;
       highlighter.clearAll();
       renderRail();
@@ -180,8 +172,8 @@ export function createInPageRailController({
 
     const handleSelectLevel = (level) => {
       if (isClosed()) return;
-      if (state.selectedLevel === level) return;
-      state.selectedLevel = level;
+      if (selectedLevel === level) return;
+      selectedLevel = level;
       highlighter.clearAll();
       renderRail();
     };
@@ -209,31 +201,32 @@ export function createInPageRailController({
 
     function renderRail({ measureOnly = false } = {}) {
       if (isClosed() || guard.isStale()) return;
+      const { mode, side } = surface;
       // Preserve the scroller's viewport origin for later outer-page movement.
       const projectedScrollContainerTop = isNestedScroll
         ? scrollContainer.getBoundingClientRect().top
         : 0;
-      const canProject = state.mode !== 'chat' && !measureOnly && Number.isFinite(railOriginTop);
+      const canProject = mode !== RAIL_MODE.CHAT && !measureOnly && Number.isFinite(railOriginTop);
       // Summaries mode hints at better levels, so every level is projected;
       // the selected level's cards are reused rather than projected twice.
       let levelCards;
-      if (canProject && state.mode === 'summaries' && maxLevel > 0) {
+      if (canProject && mode === RAIL_MODE.SUMMARIES && maxLevel > 0) {
         levelCards = new Map();
         for (let level = 0; level <= maxLevel; level += 1) {
           levelCards.set(level, projectRail(level));
         }
       }
-      const cards = !canProject ? [] : (levelCards?.get(state.selectedLevel) ?? projectRail());
+      const cards = !canProject ? [] : (levelCards?.get(selectedLevel) ?? projectRail());
       // Margin notes need room beside the text; otherwise show the in-rail cards.
-      const notesAvailable = canDrawNotes(cards, state.side);
-      const topicLayout = notesAvailable ? state.topicLayout : 'cards';
+      const notesAvailable = canDrawNotes(cards, side);
+      const topicLayout = notesAvailable ? preferredTopicLayout : 'cards';
       railEl.dataset.topicLayout = topicLayout;
       const commit = () => {
         railRoot.render(
           <InPageRail
-            mode={state.mode}
+            mode={mode}
             maxLevel={maxLevel}
-            selectedLevel={state.selectedLevel}
+            selectedLevel={selectedLevel}
             cards={cards}
             levelCards={levelCards}
             topicActions={topicActions}
@@ -242,7 +235,7 @@ export function createInPageRailController({
             onSelectLevel={handleSelectLevel}
             topicLayout={topicLayout}
             onSelectTopicLayout={notesAvailable ? handleSelectTopicLayout : undefined}
-            side={state.side}
+            side={side}
             onSelectSide={handleSelectSide}
             onHighlightCard={handleHighlightCard}
             onScrollToCard={handleScrollToCard}
@@ -306,7 +299,7 @@ export function createInPageRailController({
       isNestedScroll = Boolean(scrollContainer && scrollContainer !== contentWindow);
       highlighter.updateAnchors({ wordEntries, sentenceRanges, scrollContainer });
       // Chat citations still need fresh anchors, but display no rail cards.
-      if (state.mode === 'chat') return;
+      if (surface.mode === RAIL_MODE.CHAT) return;
       measureRailOrigin();
       renderRail();
     };
@@ -356,7 +349,7 @@ export function createInPageRailController({
 
     // Re-measure the origin and sentences after viewport reflow.
     highlighter.onViewportResize(() => {
-      if (isClosed() || guard.isStale() || state.mode === 'chat') return;
+      if (isClosed() || guard.isStale() || surface.mode === RAIL_MODE.CHAT) return;
       measureRailOrigin();
       renderRail();
     });

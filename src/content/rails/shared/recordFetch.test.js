@@ -5,7 +5,6 @@ import {
   findPickedElements,
   assessRecordForRail,
   assessRecordLifecycle,
-  createLoadToken,
   describeFetchFailure,
 } from './recordFetch.js';
 
@@ -369,57 +368,5 @@ describe('assessRecordForRail', () => {
     const result = assessRecordForRail(record);
     expect(result.kind).toBe('ready');
     expect(result.record).toBe(record);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// createLoadToken
-// ---------------------------------------------------------------------------
-
-describe('createLoadToken', () => {
-  it('sets tokenHolder.current to a unique symbol', () => {
-    const holder = { current: null };
-    const guard = createLoadToken(holder);
-    expect(typeof holder.current).toBe('symbol');
-    expect(holder.current).toBe(guard.token);
-  });
-
-  it('isStale() returns false immediately after creation', () => {
-    const holder = { current: null };
-    const guard = createLoadToken(holder);
-    expect(guard.isStale()).toBe(false);
-  });
-
-  it('isStale() returns true when holder is nullified (closeInPageRail path)', () => {
-    const holder = { current: null };
-    const guard = createLoadToken(holder);
-    // Simulate the surface manager's close() clearing the holder
-    holder.current = null;
-    expect(guard.isStale()).toBe(true);
-  });
-
-  it('isStale() returns true when a newer token overwrites the holder', () => {
-    const holder = { current: null };
-    const guard1 = createLoadToken(holder);
-    // A second call overwrites holder.current
-    createLoadToken(holder);
-    expect(guard1.isStale()).toBe(true);
-  });
-
-  it('the newer guard isStale() returns false while the older one returns true', () => {
-    const holder = { current: null };
-    const guard1 = createLoadToken(holder);
-    const guard2 = createLoadToken(holder);
-    expect(guard1.isStale()).toBe(true);
-    expect(guard2.isStale()).toBe(false);
-  });
-
-  it('each call produces a distinct token symbol', () => {
-    const holder = { current: null };
-    const guard1 = createLoadToken(holder);
-    const t1 = guard1.token;
-    const guard2 = createLoadToken(holder);
-    const t2 = guard2.token;
-    expect(t1).not.toBe(t2);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RAIL_MODES, normalizeRailMode, resolveRailLevel, createRailState } from './railState.js';
+import { RAIL_MODES, normalizeRailMode, resolveRailLevel } from './railState.js';
 
 describe('railState', () => {
   describe('RAIL_MODES', () => {
@@ -46,30 +46,6 @@ describe('railState', () => {
       expect(resolveRailLevel({})).toBe(0);
       expect(resolveRailLevel({ level: '1' })).toBe(0);
       expect(resolveRailLevel({ level: null })).toBe(0);
-    });
-  });
-
-  describe('createRailState', () => {
-    it('initializes default state when called without arguments', () => {
-      expect(createRailState()).toEqual({
-        mode: 'topics',
-        selectedLevel: 0,
-      });
-    });
-
-    it('normalizes mode and resolves level', () => {
-      expect(createRailState('summaries', { level: 3 })).toEqual({
-        mode: 'summaries',
-        selectedLevel: 3,
-      });
-      expect(createRailState('chat', { level: 1 })).toEqual({
-        mode: 'chat',
-        selectedLevel: 1,
-      });
-      expect(createRailState('invalid', { level: 'bad' })).toEqual({
-        mode: 'topics',
-        selectedLevel: 0,
-      });
     });
   });
 });

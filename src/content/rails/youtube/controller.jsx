@@ -5,7 +5,8 @@ import { buildYouTubeRailCards } from './sync.js';
 import { formatTimestampLabel, getTimestampForSentences } from '../../../utils/youtubeTimestamp.js';
 import { computeMaxTopicLevel } from '../shared/railCards.js';
 import { createRecordLoader } from '../shared/recordLoader.js';
-import { createRailState, normalizeRailMode, normalizeRailSide } from '../shared/railState.js';
+import { resolveRailLevel } from '../shared/railState.js';
+import { RAIL_MODE } from '../../../shared/runtime/contracts.js';
 import { browserRuntimeMessenger } from '../../../utils/runtimeMessages.js';
 import { createLogger } from '../../../shared/runtime/log.js';
 import { MSG } from '../../../shared/runtime/messages.js';
@@ -43,9 +44,9 @@ export function createYouTubeRailController({
   const isAdPlaying = () =>
     Boolean(contentDocument.querySelector('.html5-video-player.ad-showing, .ad-interrupting'));
 
-  async function openYouTubeRail(rec, initialMode = 'topics', options = {}) {
+  async function openYouTubeRail(rec, initialMode = RAIL_MODE.TOPICS, options = {}) {
     const { guard, assessment } = await recordLoader.load(rec.key);
-    if (!assessment) return false;
+    if (!assessment || guard.isStale()) return false;
     const record = assessment.record;
     // No page article DOM here, so no selector gating: require only transcript
     // sentences and at least one topic/summary.
@@ -58,17 +59,17 @@ export function createYouTubeRailController({
       return false;
     }
 
-    const state = createRailState(initialMode, options);
+    let selectedLevel = resolveRailLevel(options);
 
     const maxLevel = computeMaxTopicLevel(record);
 
     const surface = surfaceManager.createSurface({
-      state,
+      initialMode,
       youtube: true,
       onTeardown: onDestroy,
     });
     if (!surface) return false;
-    const { railEl, railRoot, setRailWidthForMode, setRailSide, isClosed } = surface;
+    const { railRoot, setMode, setSide, isClosed } = surface;
     const topicActions = [
       createResplitAction({
         topics,
@@ -140,27 +141,19 @@ export function createYouTubeRailController({
     };
 
     const handleSelectMode = (mode) => {
-      if (isClosed()) return;
-      const next = normalizeRailMode(mode);
-      if (state.mode === next) return;
-      state.mode = next;
-      railEl.dataset.mode = state.mode;
-      setRailWidthForMode();
+      if (!setMode(mode)) return;
       renderRail();
     };
 
     const handleSelectSide = (side) => {
-      if (isClosed()) return;
-      const next = normalizeRailSide(side);
-      if (state.side === next) return;
-      setRailSide(next);
+      if (!setSide(side)) return;
       renderRail();
     };
 
     const handleSelectLevel = (level) => {
       if (isClosed()) return;
-      if (state.selectedLevel === level) return;
-      state.selectedLevel = level;
+      if (selectedLevel === level) return;
+      selectedLevel = level;
       renderRail();
     };
 
@@ -185,7 +178,7 @@ export function createYouTubeRailController({
     // levels to hint at a better one. The selected level's cards feed the list.
     const levelCardsByMode = new Map();
     const getLevelCards = (mode) => {
-      if (mode === 'chat') return [];
+      if (mode === RAIL_MODE.CHAT) return [];
       if (!levelCardsByMode.has(mode)) {
         levelCardsByMode.set(
           mode,
@@ -199,27 +192,28 @@ export function createYouTubeRailController({
 
     function renderRail() {
       if (isClosed() || guard.isStale()) return;
-      const levelCards = getLevelCards(state.mode);
+      const { mode, side } = surface;
+      const levelCards = getLevelCards(mode);
       const cards =
-        state.mode === 'chat'
+        mode === RAIL_MODE.CHAT
           ? []
-          : (levelCards[state.selectedLevel] ??
+          : (levelCards[selectedLevel] ??
             buildYouTubeRailCards({
               record,
-              mode: state.mode,
-              selectedLevel: state.selectedLevel,
+              mode,
+              selectedLevel,
             }));
       railRoot.render(
         <YouTubeRail
-          mode={state.mode}
+          mode={mode}
           maxLevel={maxLevel}
-          selectedLevel={state.selectedLevel}
+          selectedLevel={selectedLevel}
           cards={cards}
           levelCards={levelCards}
           topicActions={topicActions}
           onSelectMode={handleSelectMode}
           onSelectLevel={handleSelectLevel}
-          side={state.side}
+          side={side}
           onSelectSide={handleSelectSide}
           onClose={closeRail}
           getCurrentTime={getCurrentTime}

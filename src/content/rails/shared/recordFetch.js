@@ -1,6 +1,6 @@
 /**
  * Shared record-fetch helpers for content rails: record fetch, picked-element
- * lookup, record assessment, and the stale-load guard.
+ * lookup, and record assessment.
  */
 
 import { MSG } from '../../../shared/runtime/messages.js';
@@ -160,22 +160,4 @@ export function assessRecordForRail(record) {
     return { kind: 'no_selectors', record };
   }
   return { kind: 'ready', record };
-}
-
-/**
- * Create a loading-token guard for aborting stale async rail loads: await,
- * then bail if `guard.isStale()`.
- *
- * @param {{ current: symbol|null }} tokenHolder  mutable ref shared with callers
- * @returns {{ token: symbol, isStale: function(): boolean }}
- */
-export function createLoadToken(tokenHolder) {
-  const token = Symbol('rail-loading');
-  tokenHolder.current = token;
-  return {
-    token,
-    isStale() {
-      return tokenHolder.current !== token;
-    },
-  };
 }

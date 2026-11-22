@@ -1,9 +1,11 @@
 /** Shared rail state helpers for in-page and YouTube rails. */
 
+import { RAIL_MODE } from '../../../shared/runtime/contracts.js';
+
 export const RAIL_MODES = Object.freeze([
-  ['topics', 'Topics'],
-  ['summaries', 'Summaries'],
-  ['chat', 'Chat'],
+  [RAIL_MODE.TOPICS, 'Topics'],
+  [RAIL_MODE.SUMMARIES, 'Summaries'],
+  [RAIL_MODE.CHAT, 'Chat'],
 ]);
 
 export const RAIL_SIDES = Object.freeze(['right', 'left']);
@@ -27,7 +29,7 @@ const VALID_MODES = new Set(RAIL_MODES.map(([mode]) => mode));
  * @returns {'topics'|'summaries'|'chat'}
  */
 export function normalizeRailMode(mode) {
-  return VALID_MODES.has(mode) ? mode : RAIL_MODES[0][0];
+  return VALID_MODES.has(mode) ? mode : RAIL_MODE.TOPICS;
 }
 
 /**
@@ -39,18 +41,4 @@ export function normalizeRailMode(mode) {
  */
 export function resolveRailLevel(options) {
   return options && typeof options.level === 'number' ? options.level : 0;
-}
-
-/**
- * Create the initial state object for a content rail controller.
- *
- * @param {string} [initialMode='topics']
- * @param {object} [options]
- * @returns {{ mode: 'topics'|'summaries'|'chat', selectedLevel: number }}
- */
-export function createRailState(initialMode = 'topics', options = {}) {
-  return {
-    mode: normalizeRailMode(initialMode),
-    selectedLevel: resolveRailLevel(options),
-  };
 }

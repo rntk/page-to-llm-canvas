@@ -3,6 +3,7 @@
  */
 
 import { resolveColumnOverlaps } from '../../../domain/topicCards.js';
+import { RAIL_MODE } from '../../../shared/runtime/contracts.js';
 import {
   topicAccentColor,
   buildSummaryEntries,
@@ -34,7 +35,7 @@ export function buildRailCards({
   scrollContainer,
   win = window,
 }) {
-  const isSummary = mode === 'summaries';
+  const isSummary = mode === RAIL_MODE.SUMMARIES;
   const entries = isSummary
     ? buildSummaryEntries(record).entries
     : buildHierarchicalTopicEntries(record, selectedLevel);

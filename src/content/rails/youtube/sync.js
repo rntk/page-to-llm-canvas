@@ -1,4 +1,5 @@
 import { projectArticleView } from '../../../domain/articleView.js';
+import { RAIL_MODE } from '../../../shared/runtime/contracts.js';
 // Map transcript timestamps to YouTube rail cards and playback position.
 
 import {
@@ -44,7 +45,7 @@ export const LEVEL_HINT_TOLERANCE_SECONDS = 5;
 export function buildYouTubeRailCards({ record, mode, selectedLevel = 0 }) {
   if (!record || typeof record !== 'object') return [];
   const { sentences } = projectArticleView(record);
-  const isSummary = mode === 'summaries';
+  const isSummary = mode === RAIL_MODE.SUMMARIES;
 
   // Mixing hierarchy levels would make the current card jump during playback.
   const allEntries = isSummary

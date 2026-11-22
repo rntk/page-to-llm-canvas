@@ -5,6 +5,12 @@
 // Shared contract for generated and persisted chat turns.
 export const MAX_TURN_EVENTS = 200;
 
+export const RAIL_MODE = Object.freeze({
+  TOPICS: 'topics',
+  SUMMARIES: 'summaries',
+  CHAT: 'chat',
+});
+
 export const PIPELINE_STATUS = Object.freeze({
   PENDING: 'pending',
   SPLITTING: 'splitting',

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { splitTopicPath } from '../../../shared/runtime/topicPath.js';
 import { normalizeRailMode, RAIL_MODES } from './railState.js';
+import { RAIL_MODE } from '../../../shared/runtime/contracts.js';
 
 /**
  * Fixed-width "sandwich" button that opens a menu of rail views. Replaces a
@@ -138,7 +139,8 @@ export function RailHead({
   side = 'right',
   onSelectSide,
 }) {
-  const showLayoutToggle = Boolean(onSelectTopicLayout) && normalizeRailMode(mode) === 'topics';
+  const showLayoutToggle =
+    Boolean(onSelectTopicLayout) && normalizeRailMode(mode) === RAIL_MODE.TOPICS;
   return (
     <div className="pagetollm-rail-head">
       <RailModeMenu

@@ -4,6 +4,7 @@ import ArticleChat from '../../../chat/ArticleChat.jsx';
 import { createToChatAction } from '../../../chat/topicScope.js';
 import { formatTimestampLabel } from '../../../utils/youtubeTimestamp.js';
 import { HierarchicalCardTitle, LevelHintNote, RailHead } from '../shared/RailControls.jsx';
+import { RAIL_MODE } from '../../../shared/runtime/contracts.js';
 import TopicActionsMenu from '../../../components/TopicActionsMenu.jsx';
 import { buildTopicRunMenu } from '../../../components/topicActionRuns.js';
 import {
@@ -59,8 +60,8 @@ export default function YouTubeRail({
   getChatEventTimestamp,
   pollIntervalMs = DEFAULT_POLL_MS,
 }) {
-  const isSummary = mode === 'summaries';
-  const isChat = mode === 'chat';
+  const isSummary = mode === RAIL_MODE.SUMMARIES;
+  const isChat = mode === RAIL_MODE.CHAT;
   const [activeId, setActiveId] = useState(null);
   const [chatActionsTarget, setChatActionsTarget] = useState(null);
   const [scopeRequest, setScopeRequest] = useState(null);
@@ -87,7 +88,7 @@ export default function YouTubeRail({
       ...suppliedTopicActions,
       createToChatAction(({ path }) => {
         setScopeRequest({ paths: [path] });
-        onSelectMode('chat');
+        onSelectMode(RAIL_MODE.CHAT);
       }),
     ],
     [suppliedTopicActions, onSelectMode],

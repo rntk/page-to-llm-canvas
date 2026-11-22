@@ -7,6 +7,7 @@ import {
 import ArticleChat from '../../../chat/ArticleChat.jsx';
 import { createToChatAction } from '../../../chat/topicScope.js';
 import { HierarchicalCardTitle, LevelHintNote, RailHead } from '../shared/RailControls.jsx';
+import { RAIL_MODE } from '../../../shared/runtime/contracts.js';
 import { suggestLevelForCursor } from './summaryLevelHint.js';
 import TopicActionsMenu from '../../../components/TopicActionsMenu.jsx';
 import {
@@ -612,15 +613,15 @@ export default function InPageRail({
       ...suppliedTopicActions,
       createToChatAction(({ path }) => {
         setScopeRequest({ paths: [path] });
-        onSelectMode('chat');
+        onSelectMode(RAIL_MODE.CHAT);
       }),
     ],
     [suppliedTopicActions, onSelectMode],
   );
   const bodyRef = useRef(null);
   const trackRef = useRef(null);
-  const isSummary = mode === 'summaries';
-  const isChat = mode === 'chat';
+  const isSummary = mode === RAIL_MODE.SUMMARIES;
+  const isChat = mode === RAIL_MODE.CHAT;
   const isNotes = topicLayout !== 'cards';
   const showSummariesDisabledNotice = isSummary && summariesDisabled;
   // The first measurement shell has no cards yet by design; only a settled,
