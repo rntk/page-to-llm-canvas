@@ -28,6 +28,28 @@ function providerCacheIdentity(provider) {
     : null;
 }
 
+/** Bind a decision provider snapshot to the shared request limiter and metrics. */
+export function bindPipelineDecide({
+  provider,
+  createDecisionClient,
+  wrapDecide,
+  limiter,
+  fairnessKey,
+  verboseLogs,
+}) {
+  const client = createDecisionClient(provider);
+  const providerKey = providerQueueKey(provider);
+  const measuredDecide = wrapDecide(
+    (state, questions, options) => client.decide(state, questions, { ...options, verboseLogs }),
+    { provider: provider.type, model: provider.model },
+  );
+  return (state, questions, options) =>
+    limiter.run(() => measuredDecide(state, questions, options), options?.signal, {
+      providerKey,
+      fairnessKey,
+    });
+}
+
 /**
  * Own provider dispatch, measurement, budgets, request cache identities, and
  * topic-splitter selection. The limiter belongs to the composition root and is
@@ -54,18 +76,15 @@ export function createPipelineProviderServices({ providerRepository, llm, teleme
         { providerKey: providerQueueKey(activeProvider), fairnessKey },
       );
 
-    function bindDecide(decisionProvider) {
-      const client = llm.createDecisionClient(decisionProvider);
-      const measuredDecide = telemetry.wrapDecide(
-        (state, questions, opts) => client.decide(state, questions, { ...opts, verboseLogs }),
-        { provider: decisionProvider.type, model: decisionProvider.model },
-      );
-      return (state, questions, opts) =>
-        limiter.run(() => measuredDecide(state, questions, opts), opts?.signal, {
-          providerKey: providerQueueKey(decisionProvider),
-          fairnessKey,
-        });
-    }
+    const bindDecide = (decisionProvider) =>
+      bindPipelineDecide({
+        provider: decisionProvider,
+        createDecisionClient: llm.createDecisionClient,
+        wrapDecide: telemetry.wrapDecide,
+        limiter,
+        fairnessKey,
+        verboseLogs,
+      });
 
     function createDecisionSplitter(decisionProvider) {
       let decide;

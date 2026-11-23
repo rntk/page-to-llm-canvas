@@ -1,3 +1,4 @@
+import { TOPIC_SOURCE_IDS } from '../../../shared/runtime/topicSources.js';
 import { MSG } from '../../../shared/runtime/messages.js';
 import {
   IN_FLIGHT_PIPELINE_STATUSES,
@@ -36,6 +37,7 @@ import { normalizeCustomInstructions } from '../../../core/pipeline/customInstru
  * @param {function(): Promise<boolean>} deps.getStoredSummariesDisabled
  * @param {{isComplete: Function, isRevisionCurrent: Function}} deps.summaryCheckpoint
  * @param {{start: Function, stop: Function}} [deps.summaryTreeJobs] Summary tree builds.
+ * @param {{get: Function, cancel: Function}} [deps.topicTagClouds] On-demand topic tag clouds.
  * @param {object} [deps.logger]
  */
 export function createRecordHandlers({
@@ -45,6 +47,7 @@ export function createRecordHandlers({
   getStoredSummariesDisabled,
   summaryCheckpoint,
   summaryTreeJobs = null,
+  topicTagClouds = null,
   logger = createLogger(),
 }) {
   const {
@@ -318,6 +321,18 @@ export function createRecordHandlers({
       },
     },
 
+    [MSG.getTopicTagClouds]: {
+      requiresExtensionPage: false,
+      validate(msg) {
+        if (typeof msg.key !== 'string' || !msg.key) return 'missing key';
+        return TOPIC_SOURCE_IDS.includes(msg.source) ? null : 'unknown topic source';
+      },
+      async handle(msg) {
+        if (!topicTagClouds) return { ok: false, error: 'Topic tag clouds are unavailable.' };
+        return { ok: true, tagClouds: await topicTagClouds.get(msg.key, msg.source) };
+      },
+    },
+
     [MSG.stopSummaryTree]: {
       requiresExtensionPage: false,
       validate: requireKey,
@@ -536,6 +551,7 @@ export function createRecordHandlers({
       validate: () => null,
       async handle(msg) {
         cancelActivePipeline(msg.key);
+        topicTagClouds?.cancel(msg.key);
         await summaryTreeJobs?.stop(msg.key);
         await deleteRecord(msg.key);
         await pipelineSupervisor.clearPipelineFailuresForKey(msg.key);
@@ -548,6 +564,7 @@ export function createRecordHandlers({
       validate: () => null,
       async handle() {
         pipelineSupervisor.cancelAll();
+        topicTagClouds?.cancel();
         await deleteAll();
         await pipelineSupervisor.clearPipelineFailuresForKey();
         return { ok: true };

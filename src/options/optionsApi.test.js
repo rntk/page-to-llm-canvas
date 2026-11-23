@@ -29,6 +29,7 @@ describe('options API', () => {
       activeId: 'p1',
       splitterId: null,
       pageScanId: null,
+      tagCloudProviderId: null,
       error: null,
       transportError: false,
     });

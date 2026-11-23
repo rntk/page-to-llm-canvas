@@ -207,6 +207,7 @@ describe('provider storage', () => {
       activeId: null,
       splitterId: null,
       pageScanId: null,
+      tagCloudProviderId: null,
     });
     expect(await mod.getActiveProvider()).toBeNull();
   });
@@ -423,6 +424,7 @@ describe('provider storage', () => {
       activeId: second.id,
       splitterId: null,
       pageScanId: null,
+      tagCloudProviderId: null,
     });
   });
 

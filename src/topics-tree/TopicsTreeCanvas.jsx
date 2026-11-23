@@ -10,6 +10,7 @@ import React, {
 } from 'react';
 import { createPortal } from 'react-dom';
 import TopicLevelSwitcher from '../components/TopicLevelSwitcher.jsx';
+import { TopicTagCloud } from '../components/TopicTagCloud.jsx';
 import SourceArticle from './SourceArticle.jsx';
 import { formatTopicPath, splitTopicPath } from '../shared/runtime/topicPath.js';
 import { LEAF_KIND, groupSentenceSources, passageKey, textKey } from './displayTree.js';
@@ -93,8 +94,13 @@ const TopicNode = React.memo(function TopicNode({
   onToggleText,
   summaryShown,
   onToggleSummary,
+  tagCloudsByPath,
 }) {
   const summaryId = useId();
+  const tags =
+    tagCloudsByPath && Object.hasOwn(tagCloudsByPath, node.path)
+      ? tagCloudsByPath[node.path]
+      : null;
   const className = [
     'tt-node',
     `tt-node--${node.kind}`,
@@ -150,7 +156,7 @@ const TopicNode = React.memo(function TopicNode({
           <span className="tt-node__zoom-text">{node.title}</span>
         </div>
       </div>
-      {node.summarySameAsParent && (
+      {!tagCloudsByPath && node.summarySameAsParent && (
         <div className="tt-node__summary-toggle">
           <span>Same summary as parent · </span>
           <button
@@ -167,7 +173,7 @@ const TopicNode = React.memo(function TopicNode({
           </button>
         </div>
       )}
-      {node.summary && (
+      {!tagCloudsByPath && node.summary && (
         <p
           id={summaryId}
           className="tt-node__prose"
@@ -176,6 +182,7 @@ const TopicNode = React.memo(function TopicNode({
           {node.summary}
         </p>
       )}
+      {tags?.length > 0 && <TopicTagCloud tags={tags} name={node.path} />}
       <div className="tt-node__meta">
         <button
           type="button"
@@ -433,6 +440,8 @@ const LeafCard = React.memo(function LeafCard({
  *   Gives source cards a Chat tab. Keep it referentially stable.
  * @param {HTMLElement|null} [props.controlsHost] Element the view controls render into
  *   (the page bar); no controls are shown without one.
+ * @param {Record<string, Array<{word: string, weight: number}>>|null} [props.tagCloudsByPath]
+ *   Tag cloud mode uses a map keyed by topic path, including an empty map while loading.
  */
 export default function TopicsTreeCanvas({
   tree,
@@ -441,6 +450,7 @@ export default function TopicsTreeCanvas({
   onShowInPage,
   leafChat = null,
   controlsHost = null,
+  tagCloudsByPath = null,
 }) {
   const { canvasRef, stageRef, setContentBounds, holdAnchor, screenToLayoutDelta, fit } =
     useTreeViewport();
@@ -576,6 +586,7 @@ export default function TopicsTreeCanvas({
     visible,
     cardSizes,
     shownSummaries,
+    tagCloudsByPath,
     measureTick,
     fit,
     holdAnchor,
@@ -867,6 +878,7 @@ export default function TopicsTreeCanvas({
                   onToggleText={handleToggleText}
                   summaryShown={shownSummaries.has(node.key)}
                   onToggleSummary={handleToggleSummary}
+                  tagCloudsByPath={tagCloudsByPath}
                 />
               ),
             )}
@@ -911,6 +923,7 @@ export default function TopicsTreeCanvas({
                     onToggleText={NOOP}
                     summaryShown={shownSummaries.has(node.key)}
                     onToggleSummary={NOOP}
+                    tagCloudsByPath={tagCloudsByPath}
                   />
                 )}
               </div>

@@ -161,7 +161,7 @@ export function validateDecisionUrl(url, hasToken) {
   return parsed;
 }
 
-/** Storage key holding the full provider state ({ providers, activeId, splitterId, pageScanId }). */
+/** Storage key holding the provider definitions and role assignments. */
 export const PROVIDERS_KEY = 'pagetollm:llm:providers';
 
 /**
@@ -187,6 +187,7 @@ export const PROVIDERS_KEY = 'pagetollm:llm:providers';
  *   null lets the completion LLM split topics.
  * @property {string|null} pageScanId Decision provider scanning each project page
  *   for relevance before the project chat answers; null lets the completion LLM scan.
+ * @property {string|null} tagCloudProviderId Decision provider ranking topic tags.
  */
 
 /**
@@ -220,7 +221,12 @@ async function readProvidersDocument() {
   }
   const splitterId = typeof raw?.splitterId === 'string' ? raw.splitterId : null;
   const pageScanId = typeof raw?.pageScanId === 'string' ? raw.pageScanId : null;
-  return { state: { providers, activeId, splitterId, pageScanId }, unrecognized };
+  const tagCloudProviderId =
+    providers.find((p) => p.id === raw?.tagCloudProviderId && isDecisionProvider(p))?.id ?? null;
+  return {
+    state: { providers, activeId, splitterId, pageScanId, tagCloudProviderId },
+    unrecognized,
+  };
 }
 
 /**
@@ -234,7 +240,7 @@ export function sanitizeProvider(provider) {
 
 /**
  * @param {ProvidersState} state
- * @returns {{providers: Array<{id: string, name: string, type: string, model: string, url: string, serviceTier: string, contextWindowTokens: number, hasToken: boolean}>, activeId: string|null, splitterId: string|null, pageScanId: string|null}}
+ * @returns {{providers: Array<{id: string, name: string, type: string, model: string, url: string, serviceTier: string, contextWindowTokens: number, hasToken: boolean}>, activeId: string|null, splitterId: string|null, pageScanId: string|null, tagCloudProviderId: string|null}}
  */
 export function sanitizeProvidersState(state) {
   return {
@@ -242,6 +248,7 @@ export function sanitizeProvidersState(state) {
     activeId: state.activeId,
     splitterId: state.splitterId ?? null,
     pageScanId: state.pageScanId ?? null,
+    tagCloudProviderId: state.tagCloudProviderId ?? null,
   };
 }
 
@@ -371,9 +378,11 @@ export async function saveProvider(input) {
       }
       state.providers[existingIndex] = entry;
     }
-    // A non-decision entry can no longer be the splitter or page scanner.
+    // Clear decision assignments when a provider switches to a completion type.
     if (state.splitterId === entry.id && !isDecisionProvider(entry)) state.splitterId = null;
     if (state.pageScanId === entry.id && !isDecisionProvider(entry)) state.pageScanId = null;
+    if (state.tagCloudProviderId === entry.id && !isDecisionProvider(entry))
+      state.tagCloudProviderId = null;
     const completionProviders = state.providers.filter(isCompletionProvider);
     if (!completionProviders.some((p) => p.id === state.activeId)) {
       // Auto-activate only the first completion provider, so page text never
@@ -402,6 +411,7 @@ export async function deleteProvider(id) {
     if (state.activeId === id) state.activeId = null;
     if (state.splitterId === id) state.splitterId = null;
     if (state.pageScanId === id) state.pageScanId = null;
+    if (state.tagCloudProviderId === id) state.tagCloudProviderId = null;
     await writeProvidersState(state, document);
     return state;
   });
@@ -439,7 +449,7 @@ export async function getActiveProvider() {
 }
 
 /**
- * @param {'splitterId'|'pageScanId'} field
+ * @param {'splitterId'|'pageScanId'|'tagCloudProviderId'} field
  * @param {string|null} id
  * @param {string} roleErrorMessage
  * @returns {Promise<ProvidersState>}
@@ -464,7 +474,7 @@ function setDecisionRoleProvider(field, id, roleErrorMessage) {
 }
 
 /**
- * @param {'splitterId'|'pageScanId'} field
+ * @param {'splitterId'|'pageScanId'|'tagCloudProviderId'} field
  * @returns {Promise<ProviderEntry|null>}
  */
 async function getDecisionRoleProvider(field) {
@@ -513,4 +523,25 @@ export function setPageScanProvider(id) {
  */
 export function getPageScanProvider() {
   return getDecisionRoleProvider('pageScanId');
+}
+
+/**
+ * Selects the decision provider that ranks topic tags.
+ * @param {string|null} id
+ * @returns {Promise<ProvidersState>}
+ */
+export function setTagCloudProvider(id) {
+  return setDecisionRoleProvider(
+    'tagCloudProviderId',
+    id,
+    'Only decision providers can rank topic tags',
+  );
+}
+
+/**
+ * Returns the selected decision provider for ranking topic tags.
+ * @returns {Promise<ProviderEntry|null>}
+ */
+export function getTagCloudProvider() {
+  return getDecisionRoleProvider('tagCloudProviderId');
 }

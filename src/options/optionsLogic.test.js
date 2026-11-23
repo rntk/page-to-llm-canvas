@@ -42,6 +42,7 @@ describe('provider form helpers', () => {
       activeId: null,
       splitterId: null,
       pageScanId: null,
+      tagCloudProviderId: null,
     });
     expect(
       normalizeProvidersResponse({
@@ -50,12 +51,14 @@ describe('provider form helpers', () => {
         activeId: 'p1',
         splitterId: 'd1',
         pageScanId: 'd2',
+        tagCloudProviderId: 'd3',
       }),
     ).toEqual({
       providers: [{ id: 'p1' }],
       activeId: 'p1',
       splitterId: 'd1',
       pageScanId: 'd2',
+      tagCloudProviderId: 'd3',
     });
   });
 

@@ -7,6 +7,7 @@ export const LLM_TASK_TYPES = Object.freeze({
   TOPIC_RESPLIT: 'topic_resplit',
   TOPIC_BOUNDARIES: 'topic_boundaries',
   TOPIC_LABELS: 'topic_labels',
+  TOPIC_TAGS: 'topic_tags',
   ARTICLE_SUMMARY: 'article_summary',
   TOPIC_SUMMARY_FROM_SOURCE: 'topic_summary_from_source',
   ARTICLE_SUMMARY_MERGE: 'article_summary_merge',

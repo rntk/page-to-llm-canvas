@@ -78,6 +78,18 @@
   padding: 6px 36px 6px 10px;
 }
 
+.th-node__card-content {
+  position: sticky;
+  top: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.th-node__card-content .th-node__label-content {
+  position: relative;
+  top: auto;
+}
+
 .th-node__actions-trigger {
   position: absolute;
   top: 6px;
@@ -319,6 +331,34 @@
   line-height: 1.35;
   white-space: nowrap;
   user-select: text;
+}
+
+.th-root--tag-clouds .th-leaf-row {
+  flex-basis: auto;
+  height: auto;
+  min-height: var(--th-row-height);
+}
+
+.th-tag-cloud {
+  align-self: center;
+  width: max-content;
+  max-width: min(38rem, 70vw);
+  padding: 4px 8px;
+}
+
+.th-node__card-content .th-tag-cloud {
+  /* Keep the topic title in charge of the measured column width. */
+  contain: inline-size;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: none;
+  padding: 8px 12px;
+  white-space: normal;
+}
+
+.th-page--card-mode .th-page__bar,
+.th-page--card-mode .th-page__actions {
+  flex-wrap: wrap;
 }
 
 .th-empty {

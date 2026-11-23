@@ -8,6 +8,16 @@
   min-height: 0;
 }
 
+.tt-page__body > .th-tag-cloud-notice {
+  margin: 0;
+  padding: var(--th-space-3) var(--th-space-4);
+  font-size: var(--th-font-sm);
+}
+
+.tt-page .th-page__bar:has(.topic-tag-cloud-switcher) {
+  flex-wrap: wrap;
+}
+
 .tt-view {
   display: flex;
   flex: 1 1 auto;
@@ -347,6 +357,10 @@
   line-height: 1.45;
 }
 
+.tt-node .topic-tag-cloud {
+  margin-top: var(--th-space-2);
+}
+
 /* A copied summary eases in when the reader reveals it. */
 .tt-node__summary-toggle + .tt-node__prose {
   animation: tt-fade-in var(--th-dur) var(--th-ease);
@@ -465,19 +479,19 @@
   display: block;
 }
 
-/* Reserve vertical space for the enlarged title above the summary, while
+/* Reserve vertical space for the enlarged title above the node content, while
    keeping the measured column width independent of that title's contents. */
-.tt-stage.is-title-zoomed .tt-node:has(.tt-node__prose) .tt-node__title {
+.tt-stage.is-title-zoomed .tt-node:has(.tt-node__prose, .topic-tag-cloud) .tt-node__title {
   height: 0;
   overflow: hidden;
 }
 
-.tt-stage.is-title-zoomed .tt-node:has(.tt-node__prose) .tt-node__zoom-label {
+.tt-stage.is-title-zoomed .tt-node:has(.tt-node__prose, .topic-tag-cloud) .tt-node__zoom-label {
   display: block;
   contain: inline-size;
 }
 
-.tt-stage.is-title-zoomed .tt-node:has(.tt-node__prose) .tt-node__zoom-title {
+.tt-stage.is-title-zoomed .tt-node:has(.tt-node__prose, .topic-tag-cloud) .tt-node__zoom-title {
   position: relative;
   top: auto;
   left: calc(-3px - var(--th-space-4, 0px));

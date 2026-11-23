@@ -51,6 +51,7 @@ export const LLM_TASK_TYPE_LABELS = Object.freeze({
   [LLM_TASK_TYPES.TOPIC_RANGES]: 'Topic ranges (LLM splitter)',
   [LLM_TASK_TYPES.TOPIC_BOUNDARIES]: 'Topic boundaries (decision splitter)',
   [LLM_TASK_TYPES.TOPIC_LABELS]: 'Topic labels (decision splitter)',
+  [LLM_TASK_TYPES.TOPIC_TAGS]: 'Topic tag clouds',
   [LLM_TASK_TYPES.TOPIC_RESPLIT]: 'Topic resplit (manual)',
   [LLM_TASK_TYPES.ARTICLE_SUMMARY]: 'Article summary',
   [LLM_TASK_TYPES.TOPIC_SUMMARY_FROM_SOURCE]: 'Topic summary (from source)',

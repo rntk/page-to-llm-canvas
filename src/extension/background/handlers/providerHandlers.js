@@ -11,6 +11,7 @@ import { MSG } from '../../../shared/runtime/messages.js';
  * @param {Function} deps.setActiveProvider
  * @param {Function} deps.setTopicSplitter
  * @param {Function} deps.setPageScanProvider Selects the project chat page-scan decision provider.
+ * @param {Function} deps.setTagCloudProvider Selects the topic tag cloud decision provider.
  * @param {Function} deps.sanitizeProvider
  * @param {Function} deps.sanitizeProvidersState
  */
@@ -21,6 +22,7 @@ export function createProviderHandlers({
   setActiveProvider,
   setTopicSplitter,
   setPageScanProvider,
+  setTagCloudProvider,
   sanitizeProvider,
   sanitizeProvidersState,
 }) {
@@ -82,6 +84,16 @@ export function createProviderHandlers({
         msg.id == null || typeof msg.id === 'string' ? null : 'id must be a string or null',
       async handle(msg) {
         const state = await setPageScanProvider(msg.id || null);
+        return { ok: true, ...sanitizeProvidersState(state) };
+      },
+    },
+
+    [MSG.setTagCloudProvider]: {
+      requiresExtensionPage: true,
+      validate: (msg) =>
+        msg.id == null || typeof msg.id === 'string' ? null : 'id must be a string or null',
+      async handle(msg) {
+        const state = await setTagCloudProvider(msg.id || null);
         return { ok: true, ...sanitizeProvidersState(state) };
       },
     },

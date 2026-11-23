@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { articleRootTitle } from '../domain/articleView.js';
+import { useStableJsonValue } from '../shared/hooks/useStableJsonValue.js';
 import { SUMMARY_TREE_STATUS } from '../shared/runtime/summaryTree.js';
 import { TOPIC_SOURCE, TOPIC_SOURCE_LABELS, summaryTreeRevision } from '../shared/topicSource.js';
 import SummaryTreeBar from './SummaryTreeBar.jsx';
@@ -42,9 +43,10 @@ export function useSourceTree(source, recordKey, record, summaryTree) {
   const input = source.inputOf(record, summaryTree);
   const revision = source.revisionOf(record, summaryTree);
   const title = articleRootTitle(record?.sourceUrl);
-  // Older records and in-memory callers may lack revision markers.
-  const first = revision == null ? input[0] : null;
-  const second = revision == null ? input[1] : null;
+  // A tag cloud save can refresh the record without changing its tree inputs.
+  // Compare the inputs by value when older records lack a revision marker.
+  const first = useStableJsonValue(revision == null ? input[0] : null);
+  const second = useStableJsonValue(revision == null ? input[1] : null);
   return useMemo(
     () => ({ tree: source.build(input, { title }), canvasKey: ++nextCanvasKey }),
     // Saved revisions cover the input; polling creates fresh objects for unchanged data.

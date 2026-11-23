@@ -44,7 +44,7 @@ export function createEmptyProviderForm() {
 /**
  * Normalizes a provider list response from the runtime messaging layer.
  * @param {object|null|undefined} resp
- * @returns {{providers: Array, activeId: string|null, splitterId: string|null, pageScanId: string|null}|null}
+ * @returns {{providers: Array, activeId: string|null, splitterId: string|null, pageScanId: string|null, tagCloudProviderId: string|null}|null}
  */
 export function normalizeProvidersResponse(resp) {
   if (!resp || !resp.ok) return null;
@@ -53,6 +53,7 @@ export function normalizeProvidersResponse(resp) {
     activeId: resp.activeId || null,
     splitterId: resp.splitterId || null,
     pageScanId: resp.pageScanId || null,
+    tagCloudProviderId: resp.tagCloudProviderId || null,
   };
 }
 

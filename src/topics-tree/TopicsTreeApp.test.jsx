@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client';
 import TopicsTreeApp from './TopicsTreeApp.jsx';
 import { articleRootTitle } from '../domain/articleView.js';
 import { useRecord } from '../canvas/hooks/useRecord.js';
+import { TOPIC_TAG_CLOUD_VERSION } from '../shared/runtime/topicTagClouds.js';
 
 vi.mock('../canvas/hooks/useRecord.js', () => ({
   useRecord: vi.fn(),
@@ -111,6 +112,92 @@ describe('TopicsTreeApp', () => {
     act(() => fruit.click());
     expect(titles(container)).toEqual(['news.example.com', 'Fruit', 'Veg']);
     unmount();
+  });
+
+  it('switches between summaries and weighted tags without folding the Pipeline tree', async () => {
+    useRecord.mockReturnValue({ record: doneRecord, error: null });
+    let finish;
+    const getTopicTagClouds = vi.fn(() => new Promise((resolve) => (finish = resolve)));
+    const view = render({ recordSource: { getTopicTagClouds } });
+    const { container } = view;
+    const [summaries, tagClouds] = container.querySelectorAll('[aria-label="Card content"] button');
+    expect(summaries.getAttribute('aria-pressed')).toBe('true');
+    expect(getTopicTagClouds).not.toHaveBeenCalled();
+
+    const fruit = [...container.querySelectorAll('.tt-node')].find((node) =>
+      node.textContent.startsWith('Fruit'),
+    );
+    act(() => fruit.querySelector('.tt-node__count').click());
+    const sourceCards = [...container.querySelectorAll('.tt-card')];
+    expect(sourceCards).toHaveLength(2);
+
+    act(() => tagClouds.click());
+    expect(getTopicTagClouds).toHaveBeenCalledWith('k1', 'pipeline');
+    expect(container.querySelector('.th-tag-cloud-notice').textContent).toMatch(/generating/i);
+    expect(container.querySelector('.tt-node__prose')).toBeNull();
+
+    await act(async () =>
+      finish({
+        byPath: {
+          Fruit: [{ word: 'produce', weight: 1.2 }],
+          'Fruit>Apples': [
+            { word: 'orchard', weight: 0.99 },
+            { word: 'cider', weight: 0.73 },
+          ],
+        },
+      }),
+    );
+    expect(container.querySelector('[aria-label="Tags for Fruit"]').textContent).toBe('produce');
+    const [orchard, cider] = container.querySelectorAll('[aria-label="Tags for Fruit>Apples"] li');
+    expect(orchard.textContent).toBe('orchard');
+    expect(parseFloat(orchard.style.fontSize)).toBeGreaterThan(parseFloat(cider.style.fontSize));
+
+    useRecord.mockReturnValue({ record: structuredClone(doneRecord), error: null });
+    view.rerender();
+    expect([...container.querySelectorAll('.tt-card')]).toEqual(sourceCards);
+    act(() => summaries.click());
+    expect(container.querySelector('.topic-tag-cloud')).toBeNull();
+    expect(container.textContent).toContain('Apples summary.');
+    act(() => tagClouds.click());
+    expect(container.querySelector('[aria-label="Tags for Fruit>Apples"]')).not.toBeNull();
+    expect(getTopicTagClouds).toHaveBeenCalledOnce();
+    view.unmount();
+  });
+
+  it('uses saved Pipeline tags immediately and refreshes them when the topic revision changes', async () => {
+    const record = {
+      ...doneRecord,
+      contentRevision: 'content-1',
+      topicsRevision: 1,
+      topic_tag_clouds: {
+        pipeline: {
+          version: TOPIC_TAG_CLOUD_VERSION,
+          contentRevision: 'content-1',
+          topicsRevision: 1,
+          summaryTreeRevision: null,
+          byPath: { Fruit: [{ word: 'produce', weight: 0.9 }] },
+        },
+      },
+    };
+    useRecord.mockReturnValue({ record, error: null });
+    const getTopicTagClouds = vi.fn().mockResolvedValue({
+      byPath: { Fruit: [{ word: 'orchard', weight: 0.9 }] },
+    });
+    const view = render({ recordSource: { getTopicTagClouds } });
+    const { container } = view;
+    const [, tagClouds] = container.querySelectorAll('[aria-label="Card content"] button');
+    const fruitTags = () => container.querySelector('[aria-label="Tags for Fruit"]')?.textContent;
+
+    act(() => tagClouds.click());
+    expect(fruitTags()).toBe('produce');
+    expect(container.querySelector('.th-tag-cloud-notice')).toBeNull();
+    expect(getTopicTagClouds).not.toHaveBeenCalled();
+
+    useRecord.mockReturnValue({ record: { ...record, topicsRevision: 2 }, error: null });
+    await act(async () => view.rerender());
+    expect(getTopicTagClouds).toHaveBeenCalledExactlyOnceWith('k1', 'pipeline');
+    expect(fruitTags()).toBe('orchard');
+    view.unmount();
   });
 
   it('preserves expanded topics when polling returns fresh objects for the same revision', () => {
@@ -313,6 +400,7 @@ describe('TopicsTreeApp', () => {
     const recordSource = {
       buildSummaryTree: vi.fn().mockResolvedValue({ ok: true }),
       stopSummaryTree: vi.fn().mockResolvedValue({ ok: true }),
+      getTopicTagClouds: vi.fn(),
     };
     const sourceButton = (container, label) =>
       [...container.querySelectorAll('.tt-source-switcher button')].find(
@@ -383,6 +471,8 @@ describe('TopicsTreeApp', () => {
     const onNavigateToSentences = vi.fn();
     view = render({ recordSource, onNavigateToSentences });
     act(() => sourceButton(view.container, 'Summary tree').click());
+    expect(view.container.querySelector('[aria-label="Card content"]')).toBeNull();
+    expect(recordSource.getTopicTagClouds).not.toHaveBeenCalled();
     expect(view.container.textContent).toContain('The build failed: Model down');
     expect(titles(view.container)).toEqual(['news.example.com', 'Crisp']);
     expect(view.container.textContent).toContain('An apple story.');

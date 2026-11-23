@@ -187,6 +187,45 @@ describe('decision provider form', () => {
     }
   });
 
+  it('selects and clears the topic tag cloud provider independently', async () => {
+    const state = {
+      providers: [
+        { id: 'splitter', name: 'Splitter', type: 'llama_decision', model: '' },
+        { id: 'tags', name: 'Tags', type: 'llama_decision', model: '' },
+        { id: 'completion', name: 'Completion', type: 'openai', model: 'gpt-4o' },
+      ],
+      activeId: 'completion',
+      splitterId: 'splitter',
+      tagCloudProviderId: 'tags',
+    };
+    listProviders.mockResolvedValue(state);
+    sendMessage.mockResolvedValue({ ok: true });
+    const { container, mount, cleanup } = renderSection();
+    try {
+      await mount();
+      const select = container.querySelector('#tag-cloud-provider');
+      expect(select.value).toBe('tags');
+      expect(Array.from(select.options, (option) => option.value)).toEqual([
+        '',
+        'splitter',
+        'tags',
+      ]);
+      listProviders.mockResolvedValue({ ...state, tagCloudProviderId: null });
+      await act(async () => {
+        select.value = '';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      expect(sendMessage).toHaveBeenCalledExactlyOnceWith({
+        type: 'setTagCloudProvider',
+        id: null,
+      });
+      expect(select.value).toBe('');
+      expect(container.querySelector('#topic-splitter').value).toBe('splitter');
+    } finally {
+      cleanup();
+    }
+  });
+
   it('selects the project chat page scan provider separately from the topic splitter', async () => {
     listProviders.mockResolvedValue({
       providers: [

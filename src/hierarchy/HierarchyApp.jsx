@@ -4,6 +4,7 @@ import { clickedOutsideDialog, useModalDialog } from '../shared/useModalDialog.j
 import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { useRecord } from '../canvas/hooks/useRecord.js';
 import TopicHierarchyView from './TopicHierarchyView.jsx';
+import useTopicTagClouds from '../shared/hooks/useTopicTagClouds.js';
 import { getSentencesForNode } from './hierarchyUtils.js';
 import { getYouTubeTimestampLink, getYouTubeVideoId } from '../utils/youtubeTimestamp.js';
 import YouTubeTimestampButton from '../components/YouTubeTimestampButton.jsx';
@@ -23,6 +24,7 @@ import {
   useTopicSourceRecord,
 } from '../shared/topicSource.js';
 import TopicSourceSwitcher from '../components/TopicSourceSwitcher.jsx';
+import { TopicTagCloudStatus, TopicTagCloudSwitcher } from '../components/TopicTagCloud.jsx';
 import SummaryTreeBar from '../topics-tree/SummaryTreeBar.jsx';
 import '../extension/styles/topic-page.css';
 import '../topics-tree/topics-tree.css';
@@ -63,6 +65,7 @@ export default function HierarchyApp({
   // `null` follows the deepest level until the user chooses one after topics load.
   const [selectedLevel, setSelectedLevel] = useState(null);
   const [activeSummary, setActiveSummary] = useState(null);
+  const [showTagClouds, setShowTagClouds] = useState(false);
   // Read by the long-lived Escape listener below.
   const activeSummaryRef = useRef(null);
 
@@ -165,6 +168,7 @@ export default function HierarchyApp({
   if (initialKey !== prevInitialKey) {
     setPrevInitialKey(initialKey);
     setSource(TOPIC_SOURCE.PIPELINE);
+    setShowTagClouds(false);
     resetTopicState();
   }
 
@@ -178,6 +182,19 @@ export default function HierarchyApp({
     resetTopicState();
   }
 
+  const canShowTagClouds =
+    isDone &&
+    Boolean(sourceRecord) &&
+    topics.length > 0 &&
+    typeof recordSource?.getTopicTagClouds === 'function';
+  const tagCloudsSelected = canShowTagClouds && showTagClouds;
+  const tagClouds = useTopicTagClouds(
+    recordSource,
+    initialKey,
+    source,
+    sourceRecord,
+    tagCloudsSelected,
+  );
   // Collapsed paths, levels and chat scopes belong to one source's topic paths.
   const handleSourceChange = (next) => {
     if (next === source) return;
@@ -281,6 +298,8 @@ export default function HierarchyApp({
       <TopicHierarchyView
         topics={topics}
         topicSummaryIndex={sourceRecord.topic_summary_index}
+        showTagClouds={tagCloudsSelected}
+        tagCloudsByPath={tagClouds.byPath}
         collapsedPaths={collapsedPaths}
         onToggleCollapse={handleToggleCollapse}
         sourceUrl={record?.sourceUrl}
@@ -296,7 +315,7 @@ export default function HierarchyApp({
   if (isDeleted) return null;
 
   return (
-    <div className="th-page">
+    <div className={`th-page${canShowTagClouds ? ' th-page--card-mode' : ''}`}>
       <header className="th-page__bar">
         <h1 className="th-page__title">Topic Hierarchy and Summaries</h1>
         <div className="th-page__actions">
@@ -324,6 +343,9 @@ export default function HierarchyApp({
               onChange={handleSelectLevel}
             />
           )}
+          {canShowTagClouds && (
+            <TopicTagCloudSwitcher selected={showTagClouds} onChange={setShowTagClouds} />
+          )}
         </div>
         <button
           type="button"
@@ -338,6 +360,7 @@ export default function HierarchyApp({
       <div className="th-page__content">
         <div className="th-page__hierarchy-pane">
           <div ref={bodyRef} className="th-page__body" tabIndex={-1}>
+            {tagCloudsSelected && <TopicTagCloudStatus {...tagClouds} />}
             {body}
           </div>
         </div>

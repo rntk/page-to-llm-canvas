@@ -10,6 +10,7 @@ import { getYouTubeTimestampLink, getYouTubeVideoId } from '../utils/youtubeTime
 import YouTubeTimestampButton from '../components/YouTubeTimestampButton.jsx';
 import { getSentencesForNode, spacedTopicPath, buildSummaryLookup } from './hierarchyUtils.js';
 import TopicActionsMenu from '../components/TopicActionsMenu.jsx';
+import { TopicTagCloud } from '../components/TopicTagCloud.jsx';
 
 // Fixed h:mm:ss labels keep timestamp links aligned.
 const HIERARCHY_LABEL_OPTIONS = { forceHours: true };
@@ -95,6 +96,8 @@ const HierarchyNode = React.memo(function HierarchyNode({
   entry,
   colorCache,
   summaryLookup,
+  showTagClouds,
+  tagCloudsByPath,
   selectedTopicPath,
   collapsedPaths,
   spanMap,
@@ -131,6 +134,14 @@ const HierarchyNode = React.memo(function HierarchyNode({
     });
   }, [isYouTube, entry, sourceUrl, sentences]);
 
+  const tags =
+    showTagClouds && tagCloudsByPath && Object.hasOwn(tagCloudsByPath, node.fullPath)
+      ? tagCloudsByPath[node.fullPath]
+      : null;
+  const tagCloud = tags?.length ? (
+    <TopicTagCloud className="th-tag-cloud" tags={tags} name={node.fullPath} />
+  ) : null;
+
   if (isLeaf) {
     const summary = getNodeSummary(node, summaryLookup);
     return (
@@ -151,14 +162,16 @@ const HierarchyNode = React.memo(function HierarchyNode({
           <YouTubeTimestampButton link={youtubeLink} />
           {topicMenu}
         </div>
-        {summary && (
-          <TopicSummary
-            className="th-leaf-summary"
-            entry={entry}
-            summary={summary}
-            onSummaryClick={onSummaryClick}
-          />
-        )}
+        {showTagClouds
+          ? tagCloud
+          : summary && (
+              <TopicSummary
+                className="th-leaf-summary"
+                entry={entry}
+                summary={summary}
+                onSummaryClick={onSummaryClick}
+              />
+            )}
       </div>
     );
   }
@@ -208,19 +221,30 @@ const HierarchyNode = React.memo(function HierarchyNode({
             {topicMenu}
           </span>
         </div>
-        {summary && (
-          <TopicSummary
-            className="th-node__summary"
-            entry={entry}
-            summary={summary}
-            onSummaryClick={onSummaryClick}
-          />
-        )}
+        {showTagClouds
+          ? tagCloud
+          : summary && (
+              <TopicSummary
+                className="th-node__summary"
+                entry={entry}
+                summary={summary}
+                onSummaryClick={onSummaryClick}
+              />
+            )}
       </div>
     );
   }
 
   const rowSpan = spanMap.get(node.uid) ?? entry.leafCount ?? countLeafDescendants(entry);
+  const labelContent = (
+    <span className="th-node__label-content">
+      {toggleButton}
+      <span className="th-node__label-text">{node.name}</span>
+      <YouTubeTimestampButton link={youtubeLink} />
+      {topicMenu}
+      <span className="th-node__drill" aria-hidden="true"></span>
+    </span>
+  );
 
   return (
     <div className="th-node" style={{ '--th-row-span': rowSpan }}>
@@ -230,13 +254,14 @@ const HierarchyNode = React.memo(function HierarchyNode({
         title={node.fullPath.replace(/>/g, ' ')}
         onClick={() => onTopicClick?.(entry)}
       >
-        <span className="th-node__label-content">
-          {toggleButton}
-          <span className="th-node__label-text">{node.name}</span>
-          <YouTubeTimestampButton link={youtubeLink} />
-          {topicMenu}
-          <span className="th-node__drill" aria-hidden="true"></span>
-        </span>
+        {tagCloud ? (
+          <div className="th-node__card-content">
+            {labelContent}
+            {tagCloud}
+          </div>
+        ) : (
+          labelContent
+        )}
       </div>
       <div className="th-node__children">
         {children.map((child) => (
@@ -245,6 +270,8 @@ const HierarchyNode = React.memo(function HierarchyNode({
             entry={child}
             colorCache={colorCache}
             summaryLookup={summaryLookup}
+            showTagClouds={showTagClouds}
+            tagCloudsByPath={tagCloudsByPath}
             selectedTopicPath={selectedTopicPath}
             collapsedPaths={collapsedPaths}
             spanMap={spanMap}
@@ -265,6 +292,8 @@ const HierarchyNode = React.memo(function HierarchyNode({
 export default function TopicHierarchyView({
   topics,
   topicSummaryIndex,
+  showTagClouds = false,
+  tagCloudsByPath,
   selectedTopicPath,
   onTopicClick,
   onSummaryClick,
@@ -357,13 +386,15 @@ export default function TopicHierarchyView({
   }
 
   return (
-    <div className="th-root" ref={rootRef}>
+    <div className={`th-root${showTagClouds ? ' th-root--tag-clouds' : ''}`} ref={rootRef}>
       {roots.map((root) => (
         <HierarchyNode
           key={root.node.uid}
           entry={root}
           colorCache={colorCache}
           summaryLookup={summaryLookup}
+          showTagClouds={showTagClouds}
+          tagCloudsByPath={tagCloudsByPath}
           selectedTopicPath={selectedTopicPath}
           collapsedPaths={collapsedPaths}
           spanMap={spanMap}

@@ -60,3 +60,13 @@ export function canRecoverSummaryTree(tree, expectedContentRevision) {
       SUMMARY_TREE_STATUS.RUNNING
   );
 }
+
+/**
+ * Saved revision of a summary tree. A terminal save can share a millisecond
+ * with the last running checkpoint, so the status is part of it.
+ * @param {{tree: object|null}} summaryTree Effective summary tree state.
+ * @returns {string|undefined}
+ */
+export function summaryTreeRevision({ tree }) {
+  return Number.isFinite(tree?.updatedAt) ? `${tree.updatedAt}:${tree.status}` : undefined;
+}

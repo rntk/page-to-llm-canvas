@@ -6,30 +6,16 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { projectSummaryTreeTopics } from '../domain/summaryTreeTopicProjection.js';
-import { readSummaryTree, SUMMARY_TREE_STATUS } from './runtime/summaryTree.js';
+import {
+  readSummaryTree,
+  summaryTreeRevision,
+  SUMMARY_TREE_STATUS,
+} from './runtime/summaryTree.js';
+import { TOPIC_SOURCE } from './runtime/topicSources.js';
 import { useStaleTick } from './useStaleTick.js';
 
-export const TOPIC_SOURCE = Object.freeze({
-  PIPELINE: 'pipeline',
-  SUMMARY_TREE: 'summary_tree',
-});
-
-export const TOPIC_SOURCE_LABELS = Object.freeze({
-  [TOPIC_SOURCE.PIPELINE]: 'Pipeline',
-  [TOPIC_SOURCE.SUMMARY_TREE]: 'Summary tree',
-});
-
-export const TOPIC_SOURCE_IDS = Object.freeze(Object.values(TOPIC_SOURCE));
-
-/**
- * Saved revision of a summary tree. A terminal save can share a millisecond
- * with the last running checkpoint, so the status is part of it.
- * @param {{tree: object|null}} summaryTree Effective summary tree state.
- * @returns {string|undefined}
- */
-export function summaryTreeRevision({ tree }) {
-  return Number.isFinite(tree?.updatedAt) ? `${tree.updatedAt}:${tree.status}` : undefined;
-}
+export { TOPIC_SOURCE, TOPIC_SOURCE_LABELS, TOPIC_SOURCE_IDS } from './runtime/topicSources.js';
+export { summaryTreeRevision } from './runtime/summaryTree.js';
 
 /**
  * Whether the saved summary tree can be shown. Saves arrive while a build

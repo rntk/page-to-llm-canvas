@@ -6,6 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 import HierarchyApp from './HierarchyApp.jsx';
 import { useRecord } from '../canvas/hooks/useRecord.js';
+import { TOPIC_TAG_CLOUD_VERSION } from '../shared/runtime/topicTagClouds.js';
 
 vi.mock('../canvas/hooks/useRecord.js', () => ({
   useRecord: vi.fn(),
@@ -239,6 +240,122 @@ describe('HierarchyApp', () => {
     expect(container.textContent).toContain('Banana');
     expect(container.querySelector('.th-node--collapsed')).toBeNull();
 
+    unmount();
+  });
+
+  it('loads weighted tags on demand and keeps source navigation and summaries available', async () => {
+    useRecord.mockReturnValue({
+      record: {
+        status: 'done',
+        topics: [{ name: 'Fruit > Apple', sentences: [1, 3] }],
+        topic_summary_index: { 'Fruit>Apple': { runs: [{ text: 'Apple summary' }] } },
+      },
+      error: null,
+    });
+    let finish;
+    const getTopicTagClouds = vi.fn(() => new Promise((resolve) => (finish = resolve)));
+    const { container, unmount } = render(
+      createElement(HierarchyApp, { initialKey: 'key1', recordSource: { getTopicTagClouds } }),
+    );
+    const [summaries, tagClouds] = container.querySelectorAll('[aria-label="Card content"] button');
+    expect(summaries.getAttribute('aria-pressed')).toBe('true');
+    expect(container.querySelector('.th-leaf-summary').textContent).toBe('Apple summary');
+    expect(getTopicTagClouds).not.toHaveBeenCalled();
+
+    act(() => tagClouds.click());
+    expect(getTopicTagClouds).toHaveBeenCalledWith('key1', 'pipeline');
+    expect(container.querySelector('.th-tag-cloud-notice').textContent).toMatch(/generating/i);
+
+    await act(async () =>
+      finish({
+        byPath: {
+          'Fruit>Apple': [
+            { word: 'orchard', weight: 0.99 },
+            { word: 'cider', weight: 0.73 },
+          ],
+          Fruit: [{ word: 'produce', weight: 0.95 }],
+        },
+      }),
+    );
+    const [orchard, cider] = container.querySelectorAll('[aria-label="Tags for Fruit>Apple"] li');
+    expect(orchard.textContent).toBe('orchard');
+    expect(cider.textContent).toBe('cider');
+    expect(parseFloat(orchard.style.fontSize)).toBeGreaterThan(parseFloat(cider.style.fontSize));
+    expect(container.querySelector('[aria-label="Tags for Fruit"]').textContent).toBe('produce');
+
+    act(() => container.querySelector('.th-leaf').click());
+    expect(hostActions.onNavigateToSentences).toHaveBeenCalledWith({
+      key: 'key1',
+      rail: 'page',
+      sentenceNumbers: [1, 3],
+      level: 1,
+      topicPath: 'Fruit>Apple',
+    });
+
+    act(() => container.querySelector('[aria-label="Collapse Fruit"]').click());
+    expect(container.querySelector('[aria-label="Tags for Fruit"]').textContent).toBe('produce');
+    act(() => summaries.click());
+    expect(container.querySelector('.th-tag-cloud')).toBeNull();
+    act(() => container.querySelector('[aria-label="Expand Fruit"]').click());
+    expect(container.querySelector('.th-leaf-summary').textContent).toBe('Apple summary');
+    unmount();
+  });
+
+  it('shows saved Pipeline tags without requesting generation', () => {
+    useRecord.mockReturnValue({
+      record: {
+        status: 'done',
+        topics: [{ name: 'Fruit > Apple', sentences: [1] }],
+        topic_tag_clouds: {
+          pipeline: {
+            version: TOPIC_TAG_CLOUD_VERSION,
+            contentRevision: null,
+            topicsRevision: null,
+            summaryTreeRevision: null,
+            byPath: { 'Fruit>Apple': [{ word: 'orchard', weight: 0.9 }] },
+          },
+        },
+      },
+      error: null,
+    });
+    const getTopicTagClouds = vi.fn();
+    const { container, unmount } = render(
+      createElement(HierarchyApp, { initialKey: 'key1', recordSource: { getTopicTagClouds } }),
+    );
+    const [, tagClouds] = container.querySelectorAll('[aria-label="Card content"] button');
+    act(() => tagClouds.click());
+    expect(container.querySelector('[aria-label="Tags for Fruit>Apple"]').textContent).toBe(
+      'orchard',
+    );
+    expect(container.querySelector('.th-tag-cloud-notice')).toBeNull();
+    expect(getTopicTagClouds).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it('offers retry after a generation error and reports an empty result', async () => {
+    useRecord.mockReturnValue({
+      record: { status: 'done', topics: [{ name: 'Fruit', sentences: [1] }] },
+      error: null,
+    });
+    const getTopicTagClouds = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Provider unavailable'))
+      .mockResolvedValueOnce({ byPath: { Fruit: [] } });
+    const { container, unmount } = render(
+      createElement(HierarchyApp, { initialKey: 'key1', recordSource: { getTopicTagClouds } }),
+    );
+    const [, tagClouds] = container.querySelectorAll('[aria-label="Card content"] button');
+
+    await act(async () => tagClouds.click());
+    const alert = container.querySelector('.th-tag-cloud-notice[role="alert"]');
+    expect(alert.textContent).toContain('Provider unavailable');
+    expect(container.querySelector('.th-leaf')).not.toBeNull();
+
+    await act(async () => alert.querySelector('button').click());
+    expect(getTopicTagClouds).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('.th-tag-cloud-notice[role="status"]').textContent).toContain(
+      'No tags are available',
+    );
     unmount();
   });
 
@@ -591,6 +708,38 @@ describe('HierarchyApp topic source switcher', () => {
 
     clickSource(container, 'Pipeline');
     expect(container.textContent).toContain('Fruit');
+    unmount();
+  });
+
+  it('refreshes tag clouds after an unversioned summary tree changes', async () => {
+    const legacyTree = summaryTree('done', { updatedAt: undefined });
+    const getTopicTagClouds = vi
+      .fn()
+      .mockResolvedValueOnce({ byPath: { 'Tree topic': [{ word: 'original', weight: 1 }] } })
+      .mockResolvedValueOnce({ byPath: { 'Updated topic': [{ word: 'replacement', weight: 1 }] } });
+    const recordSource = { getTopicTagClouds };
+    const element = createElement(HierarchyApp, { initialKey: 'key1', recordSource });
+    useRecord.mockReturnValue({ record: record({ summary_tree: legacyTree }), error: null });
+    const { container, rerender, unmount } = render(element);
+    clickSource(container, 'Summary tree');
+    const [, tagClouds] = container.querySelectorAll('[aria-label="Card content"] button');
+    await act(async () => tagClouds.click());
+    expect(getTopicTagClouds).toHaveBeenCalledWith('key1', 'summary_tree');
+    expect(container.querySelector('.th-tag-cloud').textContent).toBe('original');
+
+    useRecord.mockReturnValue({
+      record: record({ summary_tree: structuredClone(legacyTree) }),
+      error: null,
+    });
+    rerender(cloneElement(element));
+    expect(getTopicTagClouds).toHaveBeenCalledTimes(1);
+
+    const updatedTree = structuredClone(legacyTree);
+    updatedTree.nodes.t.title = 'Updated topic';
+    useRecord.mockReturnValue({ record: record({ summary_tree: updatedTree }), error: null });
+    await act(async () => rerender(cloneElement(element)));
+    expect(getTopicTagClouds).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('.th-tag-cloud').textContent).toBe('replacement');
     unmount();
   });
 

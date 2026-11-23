@@ -22,6 +22,15 @@ export const browserRecordSource = Object.freeze({
   fetch(key) {
     return browserRuntimeMessenger.send({ type: MSG.getRecordView, key });
   },
+  async getTopicTagClouds(key, source) {
+    const response = await browserRuntimeMessenger.send({
+      type: MSG.getTopicTagClouds,
+      key,
+      source,
+    });
+    if (!response?.ok) throw new Error(response?.error || 'Could not load topic tags.');
+    return response.tagClouds;
+  },
   subscribe(key, onChange) {
     return subscribeLocalChanges(recordViewDocumentKeys(key), onChange);
   },

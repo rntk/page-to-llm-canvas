@@ -162,6 +162,32 @@
   color: var(--th-strong-fg);
 }
 
+.topic-tag-cloud {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--th-summary);
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.th-tag-cloud-notice {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+  color: var(--th-muted);
+}
+
+.th-tag-cloud-notice[role='alert'] {
+  color: var(--th-error-fg);
+}
+
 .th-page__body {
   flex: 1 1 auto;
   min-height: 0;

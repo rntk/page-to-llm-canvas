@@ -46,6 +46,10 @@ import {
 } from './recordIndex.js';
 import { disposeProcessingLogs } from './processingLog.js';
 import { createLogger } from '../../shared/runtime/log.js';
+import {
+  sameTopicTagCloudRevision,
+  topicTagCloudRevision,
+} from '../../shared/runtime/topicTagClouds.js';
 import { SUMMARY_TREE_STATUS } from '../../shared/runtime/summaryTree.js';
 
 // Public record repository: partitioning, CRUD, checkpoint writers, and
@@ -64,7 +68,7 @@ export const SOURCE_SUMMARY_UNIT_REVISION_MISMATCH = Object.freeze({
 // diagnostics have separate documents; each summary has its own key.
 const CONTENT_FIELDS = ['html', 'capturedText', 'text', 'sentences', 'topics'];
 // `summary_tree` is the alternative summary-tree approach, kept beside the index.
-const SUMMARY_OUTPUT_FIELDS = ['topic_summary_index', 'summary_tree'];
+const SUMMARY_OUTPUT_FIELDS = ['topic_summary_index', 'summary_tree', 'topic_tag_clouds'];
 const SPECIAL_FIELDS = [
   ...CONTENT_FIELDS,
   ...SUMMARY_OUTPUT_FIELDS,
@@ -371,6 +375,39 @@ export async function cancelRecordSummaryTree(key) {
             error: 'Stopped.',
             updatedAt,
           },
+        },
+      });
+      return true;
+    }),
+  );
+}
+
+/**
+ * Save a generated cloud beside its record, merging concurrent builds for
+ * distinct topic sources without letting a stale build overwrite fresh data.
+ * @param {string} key Record key.
+ * @param {string} source Selected topic source.
+ * @param {object} cloud Generated cloud with its source revisions.
+ * @param {string} [expectedPipelineRunId] Run observed before generation.
+ * @returns {Promise<boolean>}
+ */
+export function putRecordTopicTagClouds(key, source, cloud, expectedPipelineRunId) {
+  return queuedUpdate(MUTATION_QUEUE_KEY, () =>
+    queuedRecordUpdate(key, async () => {
+      const outputKey = summaryOutputStorageKey(key);
+      const meta = await loadMetaForWrite(key);
+      if (meta?.status !== 'done' || meta.pipelineRunId !== expectedPipelineRunId) return false;
+      const items = await getLocal(outputKey);
+      const output = items[outputKey] ?? {};
+      const revision = topicTagCloudRevision(
+        { ...meta, summary_tree: output.summary_tree },
+        source,
+      );
+      if (!sameTopicTagCloudRevision(cloud, revision)) return false;
+      await setLocal({
+        [outputKey]: {
+          ...output,
+          topic_tag_clouds: { ...output.topic_tag_clouds, [source]: cloud },
         },
       });
       return true;

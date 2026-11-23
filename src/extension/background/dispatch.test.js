@@ -343,6 +343,7 @@ describe('dispatchMessage unit tests', () => {
       'setActiveProvider',
       'setTopicSplitter',
       'setPageScanProvider',
+      'setTagCloudProvider',
       'getProjectChatScanConfig',
       'projectChatDecide',
       'readProjectPageText',

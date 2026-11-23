@@ -35,6 +35,7 @@ export function ProvidersSection() {
   const [activeId, setActiveId] = useState(null);
   const [splitterId, setSplitterId] = useState(null);
   const [pageScanId, setPageScanId] = useState(null);
+  const [tagCloudProviderId, setTagCloudProviderId] = useState(null);
   const [form, setForm] = useState(() => createEmptyProviderForm());
   const [error, setError] = useState('');
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -54,6 +55,7 @@ export function ProvidersSection() {
       setActiveId(next.activeId);
       setSplitterId(next.splitterId ?? null);
       setPageScanId(next.pageScanId ?? null);
+      setTagCloudProviderId(next.tagCloudProviderId ?? null);
       setLoadError(null);
     } else {
       setLoadError(next.error || 'Failed to load providers');
@@ -203,6 +205,16 @@ export function ProvidersSection() {
     await load();
   };
 
+  const chooseTagCloudProvider = async (id) => {
+    setError('');
+    const response = await sendMessage({ type: MSG.setTagCloudProvider, id: id || null });
+    if (!response || !response.ok) {
+      setError((response && response.error) || 'Failed to set topic tag cloud provider');
+      return;
+    }
+    await load();
+  };
+
   return (
     <section className="section">
       <div className="section-heading">
@@ -333,6 +345,22 @@ export function ProvidersSection() {
               decision provider does this with typed relevance questions instead of LLM calls.
             </div>
           </div>
+
+          <div className="provider-assignment">
+            <label htmlFor="tag-cloud-provider">Topic tag clouds</label>
+            <select
+              id="tag-cloud-provider"
+              value={tagCloudProviderId || ''}
+              onChange={(event) => chooseTagCloudProvider(event.target.value)}
+            >
+              <option value="">No provider selected</option>
+              {decisionProviders.map((provider) => (
+                <option key={provider.id} value={provider.id}>
+                  {provider.name}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       ) : null}
 
@@ -430,8 +458,9 @@ export function ProvidersSection() {
               />
               {isDecision ? (
                 <div className="note">
-                  Accepts a server root or /v1 URL. Select it as the topic splitter to place topic
-                  boundaries. This API cannot generate pipeline summaries or chat replies.
+                  Accepts a server root or /v1 URL. Assign it to topic splitting, project chat page
+                  scanning, or topic tag clouds. This API cannot generate pipeline summaries or chat
+                  replies.
                 </div>
               ) : null}
             </div>

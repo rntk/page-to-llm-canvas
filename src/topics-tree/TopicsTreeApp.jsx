@@ -3,8 +3,10 @@ import { projectArticleView } from '../domain/articleView.js';
 import { useRecord } from '../canvas/hooks/useRecord.js';
 import { getYouTubeVideoId } from '../utils/youtubeTimestamp.js';
 import { PIPELINE_STATUS } from '../shared/runtime/contracts.js';
-import { useSummaryTreeActions, useSummaryTreeState } from '../shared/topicSource.js';
+import { TOPIC_SOURCE, useSummaryTreeActions, useSummaryTreeState } from '../shared/topicSource.js';
+import useTopicTagClouds from '../shared/hooks/useTopicTagClouds.js';
 import TopicSourceSwitcher from '../components/TopicSourceSwitcher.jsx';
+import { TopicTagCloudStatus, TopicTagCloudSwitcher } from '../components/TopicTagCloud.jsx';
 import { LEAF_KIND } from './displayTree.js';
 import RecordStateGate from './RecordStateGate.jsx';
 import { TREE_SOURCES, TREE_SOURCE_IDS, useSourceTree } from './treeSources.js';
@@ -14,6 +16,7 @@ import '../extension/styles/topic-page.css';
 import './topics-tree.css';
 
 const noop = () => {};
+const EMPTY_TAG_CLOUDS = Object.freeze({});
 
 /**
  * Topics tree route: the record's aggregated topic hierarchy with summaries,
@@ -48,6 +51,7 @@ export default function TopicsTreeApp({
 
   const [controlsHost, setControlsHost] = useState(null);
   const [source, setSource] = useState(TREE_SOURCE_IDS[0]);
+  const [tagCloudRecordKey, setTagCloudRecordKey] = useState(null);
   const sourceConfig = TREE_SOURCES[source];
   const summaryTree = useSummaryTreeState(record);
   const {
@@ -65,6 +69,14 @@ export default function TopicsTreeApp({
   const sourceUrl = record?.sourceUrl;
   const { tree, canvasKey } = useSourceTree(sourceConfig, initialKey, record, summaryTree);
   const isYouTube = Boolean(getYouTubeVideoId(sourceUrl));
+  const isDone = record?.status === PIPELINE_STATUS.DONE;
+  const canShowTagClouds =
+    isDone &&
+    source === TOPIC_SOURCE.PIPELINE &&
+    Boolean(initialKey && tree) &&
+    typeof recordSource?.getTopicTagClouds === 'function';
+  const showTagClouds = canShowTagClouds && tagCloudRecordKey === initialKey;
+  const tagClouds = useTopicTagClouds(recordSource, initialKey, source, record, showTagClouds);
 
   const handleShowInPage = useCallback(
     (node) => {
@@ -89,6 +101,7 @@ export default function TopicsTreeApp({
       leafChat={leafChat}
       onShowInPage={handleShowInPage}
       controlsHost={controlsHost}
+      tagCloudsByPath={showTagClouds ? (tagClouds.byPath ?? EMPTY_TAG_CLOUDS) : null}
     />
   ) : null;
 
@@ -99,15 +112,21 @@ export default function TopicsTreeApp({
     <div className="th-page tt-page">
       <header className="th-page__bar">
         <h1 className="th-page__title">Topics Tree</h1>
-        {record?.status === PIPELINE_STATUS.DONE && (
+        {isDone && (
           <TopicSourceSwitcher
             className="th-page__level-switcher tt-source-switcher"
             source={source}
             onChange={setSource}
           />
         )}
+        {canShowTagClouds && (
+          <TopicTagCloudSwitcher
+            selected={showTagClouds}
+            onChange={(selected) => setTagCloudRecordKey(selected ? initialKey : null)}
+          />
+        )}
         <div className="tt-bar-controls" ref={setControlsHost} />
-        {record?.status === PIPELINE_STATUS.DONE && SourceBar && (
+        {isDone && SourceBar && (
           <SourceBar
             status={summaryTree.status}
             tree={summaryTree.tree}
@@ -127,6 +146,7 @@ export default function TopicsTreeApp({
         </button>
       </header>
       <div className="tt-page__body">
+        {showTagClouds && <TopicTagCloudStatus {...tagClouds} />}
         <RecordStateGate record={record} error={error} onClose={onClose}>
           {sourceConfig.showCanvas(summaryTree) &&
             (canvas ||

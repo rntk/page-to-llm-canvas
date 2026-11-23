@@ -5,6 +5,7 @@ import {
   readRecordSummaryTreeState,
   readRecordSummaryTreeStates,
   cancelRecordSummaryTree,
+  putRecordTopicTagClouds,
   writeRecord,
   updateRecord,
   listRecords,
@@ -53,6 +54,7 @@ import {
   getActiveProvider,
   getDecisionProvider,
   getPageScanProvider,
+  getTagCloudProvider,
   getProvidersState,
   sanitizeProvider,
   sanitizeProvidersState,
@@ -61,7 +63,10 @@ import {
   setActiveProvider,
   setTopicSplitter,
   setPageScanProvider,
+  setTagCloudProvider,
 } from '../../core/llm/providers.js';
+import { createTopicTagCloudService } from './topicTagCloudService.js';
+import { bindPipelineDecide } from './pipeline/pipelineProviders.js';
 import { createActionIconController, createActionIconDependencies } from './actionIcon.js';
 import { createSummaryTreeJobs } from './summaryTreeJobs.js';
 import {
@@ -140,19 +145,46 @@ const runtimeErrors = {
 const providerLimiter = createAdjustableLimiter(DEFAULT_MAX_PARALLEL_LLM_REQUESTS, {
   reservedPrioritySlots: 1,
 });
-// The orchestrator applies the stored limit only at pipeline start, so a worker
-// woken just for chat would keep the default. Seed it once before the first chat
-// request. A failed read keeps the default and is retried by the next request.
+// Seed the shared queue for requests that can start before a pipeline runs.
+// A settings change received during the initial read wins over the snapshot.
 let providerLimiterSeed = null;
+let providerLimiterRevision = 0;
 function seedProviderLimiter() {
+  const revision = providerLimiterRevision;
   providerLimiterSeed ??= getStoredMaxParallelLlmRequests()
-    .then((value) => providerLimiter.setLimit(normalizeMaxParallelLlmRequests(value)))
+    .then((value) => {
+      if (revision === providerLimiterRevision)
+        providerLimiter.setLimit(normalizeMaxParallelLlmRequests(value));
+    })
     .catch((error) => {
       providerLimiterSeed = null;
       log.warn('failed to seed the LLM concurrency limit:', error);
     });
   return providerLimiterSeed;
 }
+const createDecisionClient = ({ url, token, model }, timeout) =>
+  new DecisionClient({ baseUrl: url, apiKey: token, model, timeout });
+const TOPIC_TAG_CLOUD_TIMEOUT_SECONDS = 90;
+
+const topicTagClouds = createTopicTagCloudService({
+  readRecordView,
+  putRecordTopicTagClouds,
+  getTagCloudProvider,
+  async bindDecide(provider, key) {
+    const [verboseLogs] = await Promise.all([getStoredVerboseLogs(), seedProviderLimiter()]);
+    return bindPipelineDecide({
+      provider,
+      createDecisionClient: (config) =>
+        createDecisionClient(config, TOPIC_TAG_CLOUD_TIMEOUT_SECONDS),
+      wrapDecide,
+      limiter: providerLimiter,
+      fairnessKey: key,
+      verboseLogs,
+    });
+  },
+  keepAlive: () => chrome.runtime.getPlatformInfo(),
+});
+
 const pipelineRunner = createPipelineRunner({
   runtimeFactory: createPipelineRuntime,
   settings: {
@@ -162,13 +194,15 @@ const pipelineRunner = createPipelineRunner({
     getDecisionSplitThreshold: getStoredDecisionSplitThreshold,
     normalizeMaxParallelLlmRequests,
     subscribeToMaxParallelLlmRequests: (onValue) =>
-      browserLocalStore.subscribe(MAX_PARALLEL_LLM_REQUESTS_KEY, onValue),
+      browserLocalStore.subscribe(MAX_PARALLEL_LLM_REQUESTS_KEY, (value) => {
+        providerLimiterRevision++;
+        onValue(value);
+      }),
   },
   providerRepository: { getActiveProvider, getDecisionProvider },
   llm: {
     callLLMWithRetry,
-    createDecisionClient: ({ url, token, model }) =>
-      new DecisionClient({ baseUrl: url, apiKey: token, model }),
+    createDecisionClient,
   },
   // The limiter starts at the same default used by setting normalization.
   limiterFactory: () => providerLimiter,
@@ -353,8 +387,7 @@ const chatService = createChatCompletionService({
 // heartbeat, but go to the selected decision provider.
 const decisionService = createProjectChatDecisionService({
   getPageScanProvider,
-  createDecisionClient: ({ url, token, model }) =>
-    new DecisionClient({ baseUrl: url, apiKey: token, model }),
+  createDecisionClient,
   limit: async (task, signal) => {
     await seedProviderLimiter();
     return providerLimiter.run(task, signal, { priority: true });
@@ -369,10 +402,12 @@ const resetChatService = {
   cancelAll() {
     chatService.cancelAll();
     decisionService.cancelAll();
+    topicTagClouds.cancel();
   },
   activeCompletionJobs: () => [
     ...chatService.activeCompletionJobs(),
     ...decisionService.activeCompletionJobs(),
+    ...topicTagClouds.activeJobs(),
   ],
 };
 
@@ -408,6 +443,7 @@ const MESSAGE_HANDLERS = {
       isRevisionCurrent: isSummaryCheckpointRevisionCurrent,
     },
     summaryTreeJobs,
+    topicTagClouds,
     logger: log,
   }),
   ...createChatHandlers({
@@ -428,6 +464,7 @@ const MESSAGE_HANDLERS = {
     setActiveProvider,
     setTopicSplitter,
     setPageScanProvider,
+    setTagCloudProvider,
     sanitizeProvider,
     sanitizeProvidersState,
   }),
