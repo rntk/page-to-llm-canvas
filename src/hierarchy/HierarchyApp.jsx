@@ -16,13 +16,17 @@ import { getMaxTopicLevel } from '../domain/topicDomain.js';
 import { PIPELINE_STATUS } from '../shared/runtime/contracts.js';
 import {
   TOPIC_SOURCE,
+  questionTreeEmptyText,
   summaryTreeEmptyText,
   summaryTreeRevision,
+  useQuestionTreeActions,
+  useQuestionTreeState,
   useSummaryTreeActions,
   useSummaryTreeState,
   useTopicSourceRecord,
 } from '../shared/topicSource.js';
 import TopicSourceSwitcher from '../components/TopicSourceSwitcher.jsx';
+import QuestionTreeBar from '../topics-tree/QuestionTreeBar.jsx';
 import SummaryTreeBar from '../topics-tree/SummaryTreeBar.jsx';
 import '../extension/styles/topic-page.css';
 import '../topics-tree/topics-tree.css';
@@ -105,10 +109,15 @@ export default function HierarchyApp({
 
   const [source, setSource] = useState(TOPIC_SOURCE.PIPELINE);
   const isSummaryTreeSource = source === TOPIC_SOURCE.SUMMARY_TREE;
+  const isQuestionSource = source === TOPIC_SOURCE.QUESTIONS;
+  const isAltSource = source !== TOPIC_SOURCE.PIPELINE;
   const summaryTree = useSummaryTreeState(record);
   const summaryTreeActions = useSummaryTreeActions(recordSource, initialKey);
-  // The summary tree replaces only the topics and their summaries.
-  const sourceRecord = useTopicSourceRecord(record, source, summaryTree);
+  const questionTree = useQuestionTreeState(record);
+  const questionTreeActions = useQuestionTreeActions(recordSource, initialKey);
+  const activeTree = isQuestionSource ? questionTree : summaryTree;
+  // Alternative sources replace only the topics and their summaries.
+  const sourceRecord = useTopicSourceRecord(record, source, summaryTree, questionTree);
   const article = projectArticleView(record);
   const topics = useStableJsonValue(projectArticleView(sourceRecord).topics);
   const isDone = record?.status === PIPELINE_STATUS.DONE;
@@ -124,8 +133,8 @@ export default function HierarchyApp({
   const topicActions = useMemo(
     () => [
       createToChatAction(({ path }) => setScopeRequest({ paths: [path] })),
-      // Summary tree paths are not record topics, so they cannot be resplit.
-      ...(!isSummaryTreeSource && typeof recordSource?.resplitTopic === 'function'
+      // Alternative source paths are not record topics, so they cannot be resplit.
+      ...(!isAltSource && typeof recordSource?.resplitTopic === 'function'
         ? [
             createResplitAction({
               topics,
@@ -135,7 +144,7 @@ export default function HierarchyApp({
           ]
         : []),
     ],
-    [topics, recordSource, initialKey, handleResplitAccepted, isSummaryTreeSource],
+    [topics, recordSource, initialKey, handleResplitAccepted, isAltSource],
   );
 
   const isYouTube = useMemo(
@@ -168,9 +177,9 @@ export default function HierarchyApp({
     resetTopicState();
   }
 
-  // Summary tree rebuilds or saves replace topic paths in place; reset state that names the old ones.
-  const topicStateKey = isSummaryTreeSource
-    ? `${sourceRecord ? 'shown' : 'hidden'}:${summaryTreeRevision(summaryTree) ?? ''}`
+  // Alternative tree rebuilds or saves replace topic paths in place; reset state that names the old ones.
+  const topicStateKey = isAltSource
+    ? `${sourceRecord ? 'shown' : 'hidden'}:${summaryTreeRevision(activeTree) ?? ''}`
     : '';
   const [prevTopicStateKey, setPrevTopicStateKey] = useState(topicStateKey);
   if (topicStateKey !== prevTopicStateKey) {
@@ -207,11 +216,11 @@ export default function HierarchyApp({
         rail: isYouTube ? 'youtube' : 'page',
         sentenceNumbers,
         level: entry.node.depth,
-        // Summary tree paths are not record topics; the rail opens at the sentences.
-        topicPath: isSummaryTreeSource ? undefined : entry.node.fullPath,
+        // Alternative source paths are not record topics; the rail opens at the sentences.
+        topicPath: isAltSource ? undefined : entry.node.fullPath,
       });
     },
-    [onNavigateToSentences, initialKey, isYouTube, isSummaryTreeSource],
+    [onNavigateToSentences, initialKey, isYouTube, isAltSource],
   );
 
   const handleToggleCollapse = useCallback((fullPath) => {
@@ -275,7 +284,13 @@ export default function HierarchyApp({
   } else if (!isDone) {
     body = <div className="th-page__state">Still processing this page…</div>;
   } else if (!sourceRecord) {
-    body = <div className="th-page__state">{summaryTreeEmptyText(summaryTree.status)}</div>;
+    body = (
+      <div className="th-page__state">
+        {isQuestionSource
+          ? questionTreeEmptyText(questionTree.status)
+          : summaryTreeEmptyText(summaryTree.status)}
+      </div>
+    );
   } else {
     body = (
       <TopicHierarchyView
@@ -314,6 +329,15 @@ export default function HierarchyApp({
               notice={summaryTreeActions.notice}
               onBuild={summaryTreeActions.onBuild}
               onStop={summaryTreeActions.onStop}
+            />
+          )}
+          {isDone && isQuestionSource && (
+            <QuestionTreeBar
+              status={questionTree.status}
+              tree={questionTree.tree}
+              notice={questionTreeActions.notice}
+              onBuild={questionTreeActions.onBuild}
+              onStop={questionTreeActions.onStop}
             />
           )}
           {isDone && topics.length > 0 && maxLevel > 0 && (

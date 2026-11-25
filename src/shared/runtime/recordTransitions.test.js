@@ -35,6 +35,7 @@ const SUMMARY_CHECKPOINT_RESET = {
   topic_summary_index: {},
   source_summary_units: {},
   summary_tree: null,
+  question_tree: null,
   ...REVIEW_RESET,
   summaryCheckpointContentRevision: null,
   summaryCheckpointPreferContentLanguage: null,

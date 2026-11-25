@@ -36,13 +36,17 @@ import { buildSentenceDomRange } from '../highlights/sentenceHighlight.js';
 import { PIPELINE_STATUS } from '../shared/runtime/contracts.js';
 import {
   TOPIC_SOURCE,
+  questionTreeEmptyText,
   summaryTreeEmptyText,
   summaryTreeRevision,
+  useQuestionTreeActions,
+  useQuestionTreeState,
   useSummaryTreeActions,
   useSummaryTreeState,
   useTopicSourceRecord,
 } from '../shared/topicSource.js';
 import TopicSourceSwitcher from '../components/TopicSourceSwitcher.jsx';
+import QuestionTreeBar from '../topics-tree/QuestionTreeBar.jsx';
 import SummaryTreeBar from '../topics-tree/SummaryTreeBar.jsx';
 
 const noop = () => {};
@@ -77,11 +81,16 @@ export default function App({ initialKey, recordSource, onClose = noop }) {
   }, [onClose]);
 
   const [source, setSource] = useState(TOPIC_SOURCE.PIPELINE);
-  const isSummaryTreeSource = source === TOPIC_SOURCE.SUMMARY_TREE;
+  const isPipelineSource = source === TOPIC_SOURCE.PIPELINE;
+  const isQuestionSource = source === TOPIC_SOURCE.QUESTIONS;
   const summaryTree = useSummaryTreeState(record);
   const summaryTreeActions = useSummaryTreeActions(recordSource, initialKey);
-  // The summary tree replaces only the topics and their summaries.
-  const sourceRecord = useTopicSourceRecord(record, source, summaryTree);
+  const questionTree = useQuestionTreeState(record);
+  const questionTreeActions = useQuestionTreeActions(recordSource, initialKey);
+  const activeTree = isQuestionSource ? questionTree : summaryTree;
+  const treeActions = isQuestionSource ? questionTreeActions : summaryTreeActions;
+  const TreeBar = isQuestionSource ? QuestionTreeBar : SummaryTreeBar;
+  const sourceRecord = useTopicSourceRecord(record, source, summaryTree, questionTree);
 
   // Nothing to render until the record is DONE; unusable states close via the effect above.
   if (!isReady) return null;
@@ -89,14 +98,8 @@ export default function App({ initialKey, recordSource, onClose = noop }) {
   const sourceBar = (
     <div className="canvas-source-bar" onPointerDown={(event) => event.stopPropagation()}>
       <TopicSourceSwitcher source={source} onChange={setSource} />
-      {isSummaryTreeSource && (
-        <SummaryTreeBar
-          status={summaryTree.status}
-          tree={summaryTree.tree}
-          notice={summaryTreeActions.notice}
-          onBuild={summaryTreeActions.onBuild}
-          onStop={summaryTreeActions.onStop}
-        />
+      {!isPipelineSource && (
+        <TreeBar status={activeTree.status} tree={activeTree.tree} {...treeActions} />
       )}
     </div>
   );
@@ -108,7 +111,11 @@ export default function App({ initialKey, recordSource, onClose = noop }) {
           <div className="pagetollm-canvas-main">
             {sourceBar}
             <div className="canvas-source-state" role="status">
-              <p>{summaryTreeEmptyText(summaryTree.status)}</p>
+              <p>
+                {isQuestionSource
+                  ? questionTreeEmptyText(activeTree.status)
+                  : summaryTreeEmptyText(activeTree.status)}
+              </p>
               <button type="button" className="canvas-source-state__close" onClick={onClose}>
                 Close
               </button>
@@ -119,11 +126,9 @@ export default function App({ initialKey, recordSource, onClose = noop }) {
     );
   }
 
-  // Remount on revision, topic-source, or summary-tree change: chat evidence,
+  // Remount on revision, topic-source, or saved tree change: chat evidence,
   // selections, and chat scopes are keyed to one source's sentences/topic paths.
-  const sourceKey = isSummaryTreeSource
-    ? `:${source}:${summaryTreeRevision(summaryTree) ?? ''}`
-    : '';
+  const sourceKey = isPipelineSource ? '' : `:${source}:${summaryTreeRevision(activeTree) ?? ''}`;
   return (
     <CanvasApp
       key={`${record.contentRevision}${sourceKey}`}
@@ -132,7 +137,7 @@ export default function App({ initialKey, recordSource, onClose = noop }) {
       recordSource={recordSource}
       onClose={onClose}
       onResplitAccepted={handleResplitAccepted}
-      canResplit={!isSummaryTreeSource}
+      canResplit={isPipelineSource}
       sourceBar={sourceBar}
     />
   );
@@ -461,7 +466,7 @@ function CanvasApp({
         setScopeRequest({ paths: [path] });
         setShowChat(true);
       }),
-      // Summary tree paths are not record topics, so they cannot be resplit.
+      // Resplitting operates on pipeline topic paths.
       ...(canResplit
         ? [
             createResplitAction({

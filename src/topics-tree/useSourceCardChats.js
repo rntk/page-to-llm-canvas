@@ -38,14 +38,17 @@ export function useSourceCardChats({
   );
   const chatArticle = article || recordArticle;
   return useMemo(() => {
-    const cards = new Map();
+    // A rebuilt or alternate tree can reuse a card key with different sentences.
+    const cards = new WeakMap();
     let articles = null;
     const getArticles = () =>
       (articles ??= articlesFromMergedRows(sentences, sentenceSources, records));
     const describe = (node) => {
-      if (!cards.has(node.key)) {
+      // Expanding a branch copies display nodes while keeping their evidence arrays.
+      const evidence = node.sections ?? node.sentences;
+      if (!cards.has(evidence)) {
         cards.set(
-          node.key,
+          evidence,
           describeSourceCard({
             node,
             sentences,
@@ -57,7 +60,7 @@ export function useSourceCardChats({
           }),
         );
       }
-      return cards.get(node.key);
+      return cards.get(evidence);
     };
     return {
       available: (node) => describe(node) !== null,

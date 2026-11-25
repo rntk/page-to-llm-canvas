@@ -8,6 +8,8 @@ export const MSG = Object.freeze({
   resplitTopic: 'resplitTopic',
   buildSummaryTree: 'buildSummaryTree',
   stopSummaryTree: 'stopSummaryTree',
+  buildQuestionTree: 'buildQuestionTree',
+  stopQuestionTree: 'stopQuestionTree',
   cancelRecordProcessing: 'cancelRecordProcessing',
   resolveSummaryErrors: 'resolveSummaryErrors',
   getRecord: 'getRecord',

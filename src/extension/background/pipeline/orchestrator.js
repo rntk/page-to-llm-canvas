@@ -31,6 +31,11 @@ import {
   SUMMARY_TREE_STATUS,
   SUMMARY_TREE_VERSION,
 } from '../../../core/pipeline/summaryTreeStage.js';
+import {
+  QUESTION_TREE_STATUS,
+  QUESTION_TREE_VERSION,
+  runQuestionTree as runQuestionTreeStage,
+} from '../../../core/pipeline/questionTreeStage.js';
 import { createArticleStrategy } from '../../../core/pipeline/summaryTreeStrategy.js';
 import { PASSAGE_MAX_CHARS } from '../../../core/pipeline/summaryTreePassages.js';
 import { normalizeCustomInstructions } from '../../../core/pipeline/customInstructions.js';
@@ -512,9 +517,7 @@ export function createPipelineRunner({
     }
   }
 
-  // Setup shared by article and project summary trees. The fingerprint covers
-  // the provider identity, so changing providers invalidates a saved tree.
-  async function prepareSummaryTreeRun({ fairnessKey }) {
+  async function prepareTreeProviderRun({ fairnessKey }) {
     const revision = concurrencySettingRevision;
     const [verboseLogs, maxParallelLlmRequests, activeProvider] = await Promise.all([
       settings.getVerboseLogs(),
@@ -523,37 +526,80 @@ export function createPipelineRunner({
     ]);
     if (revision === concurrencySettingRevision) limiter.setLimit(maxParallelLlmRequests);
     const providers = bindProviders({ activeProvider, fairnessKey, verboseLogs });
-    const judge = await providers.resolveSummaryTreeDecide();
-    const fingerprint = JSON.stringify([
+    const completionIdentity = [
       providers.summaryInputFingerprint,
       activeProvider?.id ?? null,
       activeProvider?.url ?? null,
       activeProvider?.contextWindowTokens ?? null,
-      judge.identity,
-    ]);
+    ];
+    return { providers, completionIdentity, verboseLogs };
+  }
+
+  // Setup shared by article and project summary trees. The fingerprint covers
+  // the provider identity, so changing providers invalidates a saved tree.
+  async function prepareSummaryTreeRun({ fairnessKey }) {
+    const { providers, completionIdentity, verboseLogs } = await prepareTreeProviderRun({
+      fairnessKey,
+    });
+    const judge = await providers.resolveSummaryTreeDecide();
+    const fingerprint = JSON.stringify([...completionIdentity, judge.identity]);
     const maxChars = Math.min(PASSAGE_MAX_CHARS, providers.runtimeOptions.maxTextChunkChars);
     return { providers, judge, fingerprint, maxChars, verboseLogs };
   }
 
+  // Question trees only call the completion provider, so their fingerprint
+  // excludes the summary-tree decision judge.
+  async function prepareQuestionTreeRun({ fairnessKey }) {
+    const { providers, completionIdentity, verboseLogs } = await prepareTreeProviderRun({
+      fairnessKey,
+    });
+    return { providers, fingerprint: JSON.stringify(completionIdentity), verboseLogs };
+  }
+
   // Marks the saved partial tree so the view offers a resume. Reads without the
   // stop signal: the record is still owned by this run.
-  async function persistSummaryTreeFailure(runContext, { stopped, message }) {
+  async function persistDerivedTreeFailure(
+    runContext,
+    { field, version, status, save, stopped, message },
+  ) {
     const owner = runtimeFactory(runContext);
     try {
       const latest = await owner.read();
-      const tree = latest?.summary_tree;
-      await owner.saveSummaryTree({
-        version: SUMMARY_TREE_VERSION,
+      const tree = latest?.[field];
+      await save(owner, {
+        version,
         ...(tree && typeof tree === 'object' ? tree : {}),
-        status: stopped ? SUMMARY_TREE_STATUS.CANCELLED : SUMMARY_TREE_STATUS.ERROR,
+        status: stopped ? status.CANCELLED : status.ERROR,
         error: message,
         updatedAt: Date.now(),
       });
     } catch (writeError) {
       if (!isCancellationError(writeError, owner)) {
-        logger.error('failed to persist summary tree failure:', writeError);
+        logger.error(`failed to persist ${field} failure:`, writeError);
       }
     }
+  }
+
+  function persistSummaryTreeFailure(runContext, { stopped, message }) {
+    return persistDerivedTreeFailure(runContext, {
+      field: 'summary_tree',
+      version: SUMMARY_TREE_VERSION,
+      status: SUMMARY_TREE_STATUS,
+      save: (owner, tree) => owner.saveSummaryTree(tree),
+      stopped,
+      message,
+    });
+  }
+
+  function persistQuestionTreeFailure(runContext, { stopped, message }) {
+    return persistDerivedTreeFailure(runContext, {
+      field: 'question_tree',
+      version: QUESTION_TREE_VERSION,
+      status: QUESTION_TREE_STATUS,
+      save: (owner, tree) => owner.saveQuestionTree(tree),
+      stopped,
+      message,
+    });
   }
 
   /**
@@ -619,6 +665,62 @@ export function createPipelineRunner({
     }
   }
 
+  /**
+   * Builds or resumes the question tree of a completed record, beside its
+   * primary topics and summaries.
+   *
+   * @param {string} key
+   * @param {object} [options]
+   * @param {AbortSignal} [options.signal] User stop.
+   * @param {boolean} [options.fresh] Rebuild instead of resuming a checkpoint.
+   * @returns {Promise<void>}
+   */
+  async function runQuestionTree(key, options = {}) {
+    const { signal, fresh = false } = options;
+    let runtime = runtimeFactory({ key, signal });
+    const record = await runtime.read();
+    if (!record) throw new Error(`record not found: ${key}`);
+    if (record.status !== PIPELINE_STATUS.DONE) {
+      throw new Error('The record must finish processing before finding questions.');
+    }
+    const { providers, fingerprint, verboseLogs } = await prepareQuestionTreeRun({
+      fairnessKey: key,
+    });
+    const runContext = {
+      key,
+      pipelineRunId: record.pipelineRunId,
+      verboseLogs,
+      ...providers.runtimeOptions,
+    };
+    runtime = runtimeFactory({ ...runContext, signal });
+    try {
+      await runQuestionTreeStage({
+        runtime,
+        record,
+        callLLMWithRetry: providers.callLLMWithRetry,
+        fingerprint,
+        fresh,
+      });
+    } catch (error) {
+      const lostRun = isCancellationError(error, runtime) && !signal?.aborted;
+      if (lostRun) {
+        logger.info('question tree superseded:', key);
+        return;
+      }
+      const stopped = signal?.aborted === true;
+      const message = stopped ? 'Stopped.' : String(error?.message || error);
+      await runtime.log(
+        stopped ? 'question_tree_stopped' : 'question_tree_error',
+        { error: message },
+        { allowAborted: true },
+      );
+      await persistQuestionTreeFailure(runContext, { stopped, message });
+      if (!stopped) logger.error('question tree failed for', key, error);
+    } finally {
+      await runtime.flushLogs();
+    }
+  }
+
   // Projects share the pipeline's provider dispatch, limiter, citation checking,
   // and checkpoint protocol; they own a project document instead of a record.
   async function runProjectTopicTree({
@@ -676,6 +778,7 @@ export function createPipelineRunner({
   return {
     runPipeline,
     runSummaryTree,
+    runQuestionTree,
     runProjectTopicTree,
     dispose() {
       if (disposed) return;

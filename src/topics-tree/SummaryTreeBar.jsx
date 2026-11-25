@@ -1,6 +1,6 @@
 import { SUMMARY_TREE_STAGE, SUMMARY_TREE_STATUS } from '../shared/runtime/summaryTree.js';
 
-const STAGE_LABELS = {
+const DEFAULT_STAGE_LABELS = {
   [SUMMARY_TREE_STAGE.PASSAGES]: 'Summarizing passages',
   [SUMMARY_TREE_STAGE.TOPICS]: 'Grouping topics',
   [SUMMARY_TREE_STAGE.SUMMARIES]: 'Summarizing topics',
@@ -11,22 +11,45 @@ const BUILD_NOTICES = {
   [SUMMARY_TREE_STATUS.CANCELLED]: 'The build was stopped.',
 };
 
-function progressText(tree) {
-  const label = STAGE_LABELS[tree?.stage] || 'Starting';
+function progressText(tree, stageLabels) {
+  const label = stageLabels[tree?.stage] || 'Starting';
   const { done = 0, total = 0 } = tree?.progress || {};
   return total > 0 ? `${label} ${done}/${total}…` : `${label}…`;
 }
 
+function defaultDescribeDone(tree) {
+  const metrics = tree?.metrics || {};
+  return `${metrics.passages ?? 0} passages · ${metrics.topics ?? 0} topics`;
+}
+
 /**
- * Status and actions of the summary tree build, shown in the page bar.
+ * Status and actions of a derived tree build, shown in the page bar.
  * @param {object} props
- * @param {string} props.status Effective summary tree status.
- * @param {object|null} props.tree Saved summary tree.
+ * @param {string} props.status Effective build status.
+ * @param {object|null} props.tree Saved tree.
  * @param {string} props.notice Last action error.
  * @param {function({fresh: boolean}): void} [props.onBuild]
  * @param {function(): void} [props.onStop]
+ * @param {Record<string, string>} [props.stageLabels]
+ * @param {function(object|null): string} [props.describeDone]
+ * @param {string} [props.introText]
+ * @param {string} [props.buildLabel]
+ * @param {string} [props.rebuildTitle]
+ * @param {string} [props.resumeTitle]
  */
-export default function SummaryTreeBar({ status, tree, notice, onBuild, onStop }) {
+export default function SummaryTreeBar({
+  status,
+  tree,
+  notice,
+  onBuild,
+  onStop,
+  stageLabels = DEFAULT_STAGE_LABELS,
+  describeDone = defaultDescribeDone,
+  introText = 'Not built yet. The summary tree groups brief passage summaries into topics and summarizes each level from the one below, citing its sources.',
+  buildLabel = 'Build summary tree',
+  rebuildTitle = 'Build the summary tree again from scratch',
+  resumeTitle = 'Continue from the completed summaries',
+}) {
   let text;
   const actions = [];
   const action = (label, onClick, title) =>
@@ -40,26 +63,24 @@ export default function SummaryTreeBar({ status, tree, notice, onBuild, onStop }
   const rebuild = onBuild && (() => onBuild({ fresh: true }));
   switch (status) {
     case SUMMARY_TREE_STATUS.RUNNING:
-      text = progressText(tree);
+      text = progressText(tree, stageLabels);
       action('Stop', onStop);
       break;
     case SUMMARY_TREE_STATUS.DONE: {
-      const metrics = tree?.metrics || {};
-      text = `${metrics.passages ?? 0} passages · ${metrics.topics ?? 0} topics`;
-      action('Rebuild', rebuild, 'Build the summary tree again from scratch');
+      text = describeDone(tree);
+      action('Rebuild', rebuild, rebuildTitle);
       break;
     }
     case SUMMARY_TREE_STATUS.ERROR:
     case SUMMARY_TREE_STATUS.CANCELLED:
     case SUMMARY_TREE_STATUS.INTERRUPTED:
       text = BUILD_NOTICES[status] || `The build failed: ${tree?.error || 'unknown error'}`;
-      action('Resume', build, 'Continue from the completed summaries');
-      action('Rebuild', rebuild, 'Build the summary tree again from scratch');
+      action('Resume', build, resumeTitle);
+      action('Rebuild', rebuild, rebuildTitle);
       break;
     default:
-      text =
-        'Not built yet. The summary tree groups brief passage summaries into topics and summarizes each level from the one below, citing its sources.';
-      action('Build summary tree', build);
+      text = introText;
+      action(buildLabel, build);
   }
   return (
     <div className="tt-source-status" role="status">

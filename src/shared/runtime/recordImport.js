@@ -25,6 +25,18 @@ export function extractImportedRecords(payload) {
   return [payload];
 }
 
+function normalizeRunningTree(tree) {
+  if (!tree || typeof tree !== 'object' || tree.status !== SUMMARY_TREE_STATUS.RUNNING) {
+    return tree;
+  }
+  return {
+    ...tree,
+    status: SUMMARY_TREE_STATUS.CANCELLED,
+    backgroundRecovery: false,
+    error: tree.error || 'Stopped.',
+  };
+}
+
 /**
  * Normalizes one importable record into a storage-ready record that is
  * immediately viewable and cannot resume the LLM pipeline.
@@ -40,19 +52,12 @@ export function normalizeImportedRecord(record, { now = Date.now() } = {}) {
     : PIPELINE_STATUS.DONE;
   // No build is running for an imported tree, so a running one must not be
   // resumable (or auto-recovered).
-  const tree = record.summary_tree;
-  const summaryTree =
-    tree && typeof tree === 'object' && tree.status === SUMMARY_TREE_STATUS.RUNNING
-      ? {
-          ...tree,
-          status: SUMMARY_TREE_STATUS.CANCELLED,
-          backgroundRecovery: false,
-          error: tree.error || 'Stopped.',
-        }
-      : tree;
+  const summaryTree = normalizeRunningTree(record.summary_tree);
+  const questionTree = normalizeRunningTree(record.question_tree);
   return {
     ...record,
-    ...(summaryTree === tree ? {} : { summary_tree: summaryTree }),
+    ...(summaryTree === record.summary_tree ? {} : { summary_tree: summaryTree }),
+    ...(questionTree === record.question_tree ? {} : { question_tree: questionTree }),
     key,
     status,
     error: status === PIPELINE_STATUS.DONE ? null : record.error || null,

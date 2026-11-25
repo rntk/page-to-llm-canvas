@@ -407,4 +407,84 @@ describe('TopicsTreeApp', () => {
     expect(titles(view.container)).toContain('Fruit');
     view.unmount();
   });
+
+  it('shows saved questions as they arrive and navigates from a point to its cited sentences', async () => {
+    const buildQuestionTree = vi.fn().mockResolvedValue({ ok: true });
+    const onNavigateToSentences = vi.fn();
+    const record = { ...doneRecord, contentRevision: 'r1' };
+    const questionTree = {
+      version: 1,
+      contentRevision: 'r1',
+      updatedAt: Date.now(),
+      stage: 'questions',
+      progress: { done: 1, total: 2 },
+      metrics: { questions: 1 },
+      chunks: [
+        {
+          sections: [
+            {
+              question: 'What happened?',
+              answer: 'The short answer.',
+              sentences: [1, 2],
+              points: [{ text: 'What we know', sentences: [2] }],
+            },
+          ],
+        },
+      ],
+    };
+    const save = (status, contentRevision = 'r1') =>
+      useRecord.mockReturnValue({
+        record: { ...record, question_tree: { ...questionTree, status, contentRevision } },
+        error: null,
+      });
+    save('done', 'old-content');
+    const { container, rerender, unmount } = render({
+      recordSource: { buildQuestionTree },
+      onNavigateToSentences,
+    });
+    const button = (label) =>
+      [...container.querySelectorAll('button')].find((element) => element.textContent === label);
+    const topic = (title) =>
+      [...container.querySelectorAll('.tt-node__title')].find(
+        (element) => element.textContent === title,
+      );
+
+    act(() => button('Questions').click());
+    expect(container.textContent).toContain('No questions have been found');
+    expect(titles(container)).toEqual([]);
+    await act(async () => button('Find questions').click());
+    expect(buildQuestionTree).toHaveBeenCalledWith('k1', { fresh: false });
+
+    save('running');
+    rerender();
+    expect(container.textContent).toContain('Finding questions 1/2…');
+    expect(titles(container)).toEqual([]);
+
+    save('done');
+    rerender();
+    expect(titles(container)).toEqual(['news.example.com', 'What happened?']);
+    expect(container.textContent).toContain('The short answer.');
+    act(() => topic('What happened?').click());
+    expect(topic('What we know').closest('.tt-node').textContent).toContain('Two.');
+    act(() => topic('What we know').click());
+    const pointSource = [...container.querySelectorAll('.tt-card')].find(
+      (card) => card.querySelector('.tt-passages')?.textContent === 'Two.',
+    );
+    const showInPage = [...pointSource.querySelectorAll('button')].find(
+      (element) => element.textContent === 'Show in page',
+    );
+    act(() => showInPage.click());
+    expect(onNavigateToSentences).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sentenceNumbers: [2],
+        topicPath: undefined,
+      }),
+    );
+
+    act(() => button('Pipeline').click());
+    act(() => button('Questions').click());
+    expect(titles(container)).toEqual(['news.example.com', 'What happened?']);
+    expect(buildQuestionTree).toHaveBeenCalledOnce();
+    unmount();
+  });
 });

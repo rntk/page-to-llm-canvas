@@ -49,4 +49,19 @@ export const browserRecordSource = Object.freeze({
   stopSummaryTree(key) {
     return browserRuntimeMessenger.send({ type: MSG.stopSummaryTree, key });
   },
+  /**
+   * Starts or resumes the worker-side question tree build.
+   * @param {string} key Record key.
+   * @param {{fresh?: boolean}} [options] `fresh` rebuilds instead of resuming.
+   */
+  buildQuestionTree(key, { fresh = false } = {}) {
+    return browserRuntimeMessenger.send({ type: MSG.buildQuestionTree, key, fresh });
+  },
+  /**
+   * Stops a running question tree build.
+   * @param {string} key Record key.
+   */
+  stopQuestionTree(key) {
+    return browserRuntimeMessenger.send({ type: MSG.stopQuestionTree, key });
+  },
 });

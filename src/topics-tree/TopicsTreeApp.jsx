@@ -3,11 +3,17 @@ import { projectArticleView } from '../domain/articleView.js';
 import { useRecord } from '../canvas/hooks/useRecord.js';
 import { getYouTubeVideoId } from '../utils/youtubeTimestamp.js';
 import { PIPELINE_STATUS } from '../shared/runtime/contracts.js';
-import { useSummaryTreeActions, useSummaryTreeState } from '../shared/topicSource.js';
+import {
+  TOPIC_SOURCE,
+  useQuestionTreeActions,
+  useQuestionTreeState,
+  useSummaryTreeActions,
+  useSummaryTreeState,
+} from '../shared/topicSource.js';
 import TopicSourceSwitcher from '../components/TopicSourceSwitcher.jsx';
 import { LEAF_KIND } from './displayTree.js';
 import RecordStateGate from './RecordStateGate.jsx';
-import { TREE_SOURCES, TREE_SOURCE_IDS, useSourceTree } from './treeSources.js';
+import { TREE_SOURCES, useSourceTree } from './treeSources.js';
 import TopicsTreeCanvas from './TopicsTreeCanvas.jsx';
 import { useSourceCardChats } from './useSourceCardChats.js';
 import '../extension/styles/topic-page.css';
@@ -47,14 +53,15 @@ export default function TopicsTreeApp({
   }, [onClose]);
 
   const [controlsHost, setControlsHost] = useState(null);
-  const [source, setSource] = useState(TREE_SOURCE_IDS[0]);
+  const [source, setSource] = useState(TOPIC_SOURCE.PIPELINE);
   const sourceConfig = TREE_SOURCES[source];
+  const isQuestionSource = source === TOPIC_SOURCE.QUESTIONS;
   const summaryTree = useSummaryTreeState(record);
-  const {
-    notice,
-    onBuild: handleBuild,
-    onStop: handleStop,
-  } = useSummaryTreeActions(recordSource, initialKey);
+  const summaryTreeActions = useSummaryTreeActions(recordSource, initialKey);
+  const questionTree = useQuestionTreeState(record);
+  const questionTreeActions = useQuestionTreeActions(recordSource, initialKey);
+  const activeTree = isQuestionSource ? questionTree : summaryTree;
+  const treeActions = isQuestionSource ? questionTreeActions : summaryTreeActions;
 
   const article = projectArticleView(record);
   const leafChat = useSourceCardChats({
@@ -63,7 +70,7 @@ export default function TopicsTreeApp({
     recordKey: initialKey,
   });
   const sourceUrl = record?.sourceUrl;
-  const { tree, canvasKey } = useSourceTree(sourceConfig, initialKey, record, summaryTree);
+  const { tree, canvasKey } = useSourceTree(sourceConfig, initialKey, record, activeTree);
   const isYouTube = Boolean(getYouTubeVideoId(sourceUrl));
 
   const handleShowInPage = useCallback(
@@ -108,13 +115,7 @@ export default function TopicsTreeApp({
         )}
         <div className="tt-bar-controls" ref={setControlsHost} />
         {record?.status === PIPELINE_STATUS.DONE && SourceBar && (
-          <SourceBar
-            status={summaryTree.status}
-            tree={summaryTree.tree}
-            notice={notice}
-            onBuild={handleBuild}
-            onStop={handleStop}
-          />
+          <SourceBar status={activeTree.status} tree={activeTree.tree} {...treeActions} />
         )}
         <button
           type="button"
@@ -128,10 +129,10 @@ export default function TopicsTreeApp({
       </header>
       <div className="tt-page__body">
         <RecordStateGate record={record} error={error} onClose={onClose}>
-          {sourceConfig.showCanvas(summaryTree) &&
+          {sourceConfig.showCanvas(activeTree) &&
             (canvas ||
               (sourceConfig.emptyText && (
-                <div className="th-page__state">{sourceConfig.emptyText}</div>
+                <div className="th-page__state">{sourceConfig.emptyText(activeTree.status)}</div>
               )))}
         </RecordStateGate>
       </div>

@@ -13,6 +13,7 @@ export const LLM_TASK_TYPES = Object.freeze({
   SUMMARY_TREE_SUMMARY: 'summary_tree_summary',
   SUMMARY_TREE_TOPICS: 'summary_tree_topics',
   SUMMARY_TREE_DECISIONS: 'summary_tree_decisions',
+  QUESTION_TREE: 'question_tree',
   CHAT_ANSWER: 'chat_answer',
   CHAT_SYNTHESIS: 'chat_synthesis',
   CHAT_PAGE_SCAN: 'chat_page_scan',

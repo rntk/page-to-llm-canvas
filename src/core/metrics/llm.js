@@ -58,6 +58,7 @@ export const LLM_TASK_TYPE_LABELS = Object.freeze({
   [LLM_TASK_TYPES.SUMMARY_TREE_SUMMARY]: 'Summary tree summary',
   [LLM_TASK_TYPES.SUMMARY_TREE_TOPICS]: 'Summary tree topics',
   [LLM_TASK_TYPES.SUMMARY_TREE_DECISIONS]: 'Summary tree decisions',
+  [LLM_TASK_TYPES.QUESTION_TREE]: 'Question tree',
   [LLM_TASK_TYPES.CHAT_ANSWER]: 'Chat answer',
   [LLM_TASK_TYPES.CHAT_SYNTHESIS]: 'Chat synthesis',
   [LLM_TASK_TYPES.CHAT_PAGE_SCAN]: 'Chat page scan',

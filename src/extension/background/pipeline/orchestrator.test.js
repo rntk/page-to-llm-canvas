@@ -94,7 +94,7 @@ vi.mock('../../../core/settings/llmConcurrency.js', () => ({
   normalizeMaxParallelLlmRequests: vi.fn((value) => Number(value) || 4),
 }));
 
-const { runPipeline } = createPipelineRunner({
+const { runPipeline, runQuestionTree } = createPipelineRunner({
   runtimeFactory: createPipelineRuntime,
   settings: {
     getPreferContentLanguage: getStoredPreferContentLanguage,
@@ -1512,5 +1512,80 @@ describe('resolveStageSettings', () => {
         record: { summaryCheckpointPreferContentLanguage: 'yes' },
       }).preferContentLanguage,
     ).toBe(false);
+  });
+});
+
+describe('runQuestionTree', () => {
+  it('excludes the decision provider from question-tree fingerprints and reuses chunks when it changes', async () => {
+    const activeProvider = {
+      id: 'p1',
+      type: 'openai',
+      url: 'https://api.example.com/v1',
+      model: 'gpt-4o-mini',
+      contextWindowTokens: 8192,
+    };
+    getActiveProvider.mockResolvedValue(activeProvider);
+    getDecisionProvider.mockResolvedValue({
+      id: 'd1',
+      name: 'Judge',
+      type: 'openai',
+      url: 'https://judge.example.com/v1',
+      model: 'judge-1',
+      contextWindowTokens: 4096,
+    });
+
+    const sentences = Array.from({ length: 14 }, (_, i) => `Sentence ${i + 1}: `.padEnd(500, 'a'));
+    let storedRecord = {
+      ...makeRecord('q-resume', '<p>text</p>'),
+      status: 'done',
+      pipelineRunId: 'run-1',
+      contentRevision: 'rev-1',
+      sentences,
+      topics: [],
+    };
+    storage.readRecord.mockImplementation(async () => structuredClone(storedRecord));
+    storage.updateRecord.mockImplementation(async (_key, patch) => {
+      storedRecord = { ...storedRecord, ...patch };
+      return structuredClone(storedRecord);
+    });
+
+    const controller = new AbortController();
+    let callCount = 0;
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt, signal }) => {
+      callCount += 1;
+      if (callCount === 1) {
+        const firstId = Number(/"first_sentence":(\d+)/u.exec(prompt)[1]);
+        return JSON.stringify({
+          sections: [{ question: 'Part 1?', answer: 'Answer 1.', start: firstId, points: [] }],
+        });
+      }
+      controller.abort();
+      signal.throwIfAborted();
+    });
+
+    await runQuestionTree('q-resume', { signal: controller.signal });
+
+    expect(getDecisionProvider).not.toHaveBeenCalled();
+    expect(storedRecord.question_tree.status).toBe('cancelled');
+    expect(storedRecord.question_tree.chunks.length).toBeGreaterThan(1);
+    expect(storedRecord.question_tree.chunks[0].sections).toHaveLength(1);
+
+    // Disable the decision provider and resume: completed chunk 1 must be reused.
+    getDecisionProvider.mockResolvedValue(null);
+    llm.callLLMWithRetry.mockClear();
+    llm.callLLMWithRetry.mockImplementation(async ({ prompt }) => {
+      const firstId = Number(/"first_sentence":(\d+)/u.exec(prompt)[1]);
+      return JSON.stringify({
+        sections: [{ question: 'Part 2?', answer: 'Answer 2.', start: firstId, points: [] }],
+      });
+    });
+
+    await runQuestionTree('q-resume');
+
+    expect(getDecisionProvider).not.toHaveBeenCalled();
+    const remainingPending = storedRecord.question_tree.chunks.length - 1;
+    expect(llm.callLLMWithRetry).toHaveBeenCalledTimes(remainingPending);
+    expect(storedRecord.question_tree.status).toBe('done');
+    expect(storedRecord.question_tree.chunks[0].sections[0].question).toBe('Part 1?');
   });
 });

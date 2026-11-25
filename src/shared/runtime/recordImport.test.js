@@ -79,14 +79,17 @@ describe('normalizeImportedRecord', () => {
     }
   });
 
-  it('converts a running summary tree to cancelled so import cannot resume it', () => {
+  it('converts a running summary tree or question tree to cancelled so import cannot resume it', () => {
     const tree = { version: 1, status: 'running', backgroundRecovery: true, nodes: {} };
+    const qTree = { version: 1, status: 'running', backgroundRecovery: true, chunks: [] };
     const record = normalizeImportedRecord(
-      { key: 'r', html: '<p>x</p>', summary_tree: tree },
+      { key: 'r', html: '<p>x</p>', summary_tree: tree, question_tree: qTree },
       { now: 1 },
     );
     expect(record.summary_tree).toMatchObject({ status: 'cancelled', backgroundRecovery: false });
+    expect(record.question_tree).toMatchObject({ status: 'cancelled', backgroundRecovery: false });
     expect(tree.status).toBe('running');
+    expect(qTree.status).toBe('running');
     const done = { version: 1, status: 'done' };
     expect(
       normalizeImportedRecord({ key: 'r', html: '<p>x</p>', summary_tree: done }, { now: 1 })

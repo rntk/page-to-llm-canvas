@@ -1,22 +1,27 @@
 import { useMemo } from 'react';
 import { articleRootTitle } from '../domain/articleView.js';
+import { projectQuestionTreeTopics } from '../domain/questionTreeTopicProjection.js';
 import { SUMMARY_TREE_STATUS } from '../shared/runtime/summaryTree.js';
-import { TOPIC_SOURCE, TOPIC_SOURCE_LABELS, summaryTreeRevision } from '../shared/topicSource.js';
+import {
+  TOPIC_SOURCE,
+  isSummaryTreeShowable,
+  questionTreeEmptyText,
+  summaryTreeRevision,
+} from '../shared/topicSource.js';
+import QuestionTreeBar from './QuestionTreeBar.jsx';
 import SummaryTreeBar from './SummaryTreeBar.jsx';
 import { buildSummaryTreeDisplayTree, buildTopicsDisplayTree } from './displayTree.js';
 
 export const TREE_SOURCES = Object.freeze({
   [TOPIC_SOURCE.PIPELINE]: {
-    label: TOPIC_SOURCE_LABELS[TOPIC_SOURCE.PIPELINE],
     inputOf: (record) => [record?.topics, record?.topic_summary_index],
     revisionOf: (record) => record?.topicsRevision,
     build: ([topics, summaries], options) => buildTopicsDisplayTree(topics, summaries, options),
     topicPath: (node) => node.path,
     showCanvas: () => true,
-    emptyText: 'No topics were found for this page.',
+    emptyText: () => 'No topics were found for this page.',
   },
   [TOPIC_SOURCE.SUMMARY_TREE]: {
-    label: TOPIC_SOURCE_LABELS[TOPIC_SOURCE.SUMMARY_TREE],
     inputOf: (_record, summaryTree) => [summaryTree.tree?.rootId, summaryTree.tree?.nodes],
     revisionOf: (_record, summaryTree) => summaryTreeRevision(summaryTree),
     build: ([rootId, nodes], options) => buildSummaryTreeDisplayTree({ rootId, nodes }, options),
@@ -26,8 +31,23 @@ export const TREE_SOURCES = Object.freeze({
     showCanvas: (summaryTree) => summaryTree.status !== SUMMARY_TREE_STATUS.RUNNING,
     Bar: SummaryTreeBar,
   },
+  [TOPIC_SOURCE.QUESTIONS]: {
+    inputOf: (record, state) =>
+      isSummaryTreeShowable(state) ? [state.tree, record?.sentences] : [],
+    revisionOf: (_record, state) =>
+      isSummaryTreeShowable(state) ? summaryTreeRevision(state) : undefined,
+    build: ([tree, sentences], options) => {
+      const projected = projectQuestionTreeTopics(tree, sentences);
+      return projected
+        ? buildTopicsDisplayTree(projected.topics, projected.topic_summary_index, options)
+        : null;
+    },
+    topicPath: () => undefined,
+    showCanvas: () => true,
+    emptyText: questionTreeEmptyText,
+    Bar: QuestionTreeBar,
+  },
 });
-export const TREE_SOURCE_IDS = Object.freeze(Object.keys(TREE_SOURCES));
 
 let nextCanvasKey = 0;
 
@@ -36,11 +56,11 @@ let nextCanvasKey = 0;
  * @param {object} source Source registry entry.
  * @param {string} recordKey Record identity, including records without a saved key.
  * @param {object|null} record Saved article.
- * @param {object} summaryTree Effective summary tree state.
+ * @param {object} treeState Effective state of the selected derived tree.
  */
-export function useSourceTree(source, recordKey, record, summaryTree) {
-  const input = source.inputOf(record, summaryTree);
-  const revision = source.revisionOf(record, summaryTree);
+export function useSourceTree(source, recordKey, record, treeState) {
+  const input = source.inputOf(record, treeState);
+  const revision = source.revisionOf(record, treeState);
   const title = articleRootTitle(record?.sourceUrl);
   // Older records and in-memory callers may lack revision markers.
   const first = revision == null ? input[0] : null;

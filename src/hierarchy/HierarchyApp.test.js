@@ -713,4 +713,94 @@ describe('HierarchyApp topic source switcher', () => {
 
     unmount();
   });
+
+  it('switches to Questions, triggers Find questions, and renders question outline', () => {
+    const buildQuestionTree = vi.fn(() => Promise.resolve({ ok: true }));
+    const stopQuestionTree = vi.fn(() => Promise.resolve({ ok: true }));
+    const questionTree = (status = 'done') => ({
+      version: 1,
+      contentRevision: 'rev-a',
+      status,
+      updatedAt: Date.now(),
+      stage: status === 'running' ? 'questions' : 'done',
+      progress: { done: 0, total: 1 },
+      metrics: { questions: 1, groups: 0 },
+      chunks: [
+        {
+          id: 'c1',
+          sentences: [1, 2],
+          sections: [
+            {
+              question: 'Why read this?',
+              answer: 'Because it explains Y.',
+              sentences: [1, 2],
+              points: [{ text: 'Key fact', sentences: [2] }],
+            },
+          ],
+        },
+      ],
+      groups: [],
+    });
+
+    useRecord.mockReturnValue({
+      record: record({ sentences: ['Sentence one.', 'Sentence two.'] }),
+      error: null,
+    });
+    const { container, rerender, unmount } = render(
+      createElement(HierarchyApp, {
+        initialKey: 'key1',
+        recordSource: { buildQuestionTree, stopQuestionTree },
+      }),
+    );
+
+    clickSource(container, 'Questions');
+    expect(container.querySelector('.th-page__body').textContent).toMatch(/No questions/);
+    act(() =>
+      Array.from(container.querySelectorAll('.tt-btn'))
+        .find((button) => button.textContent === 'Find questions')
+        .click(),
+    );
+    expect(buildQuestionTree).toHaveBeenCalledWith('key1', { fresh: false });
+
+    useRecord.mockReturnValue({
+      record: record({
+        sentences: ['Sentence one.', 'Sentence two.'],
+        question_tree: questionTree('running'),
+      }),
+      error: null,
+    });
+    rerender(
+      createElement(HierarchyApp, {
+        ...hostActions,
+        initialKey: 'key1',
+        recordSource: { buildQuestionTree, stopQuestionTree },
+      }),
+    );
+    expect(container.querySelector('.th-page__body').textContent).toMatch(/being found/);
+    expect(container.textContent).toContain('Finding questions');
+
+    useRecord.mockReturnValue({
+      record: record({
+        sentences: ['Sentence one.', 'Sentence two.'],
+        question_tree: questionTree('done'),
+      }),
+      error: null,
+    });
+    rerender(
+      createElement(HierarchyApp, {
+        ...hostActions,
+        initialKey: 'key1',
+        recordSource: { buildQuestionTree, stopQuestionTree },
+      }),
+    );
+    expect(container.textContent).toContain('Why read this?');
+    expect(container.textContent).toContain('Key fact');
+    expect(container.textContent).toContain('Sentence two.');
+
+    act(() => container.querySelector('.th-leaf').click());
+    expect(hostActions.onNavigateToSentences).toHaveBeenCalledWith(
+      expect.objectContaining({ sentenceNumbers: [2], topicPath: undefined }),
+    );
+    unmount();
+  });
 });

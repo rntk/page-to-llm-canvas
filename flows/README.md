@@ -22,6 +22,7 @@ Flow numbers are stable document identifiers; the sections below group them by s
 
 14. [Topics tree](./14-topics-tree.md) — unfold topics and their summaries as a tree on a pan/zoom canvas.
 15. [Summary tree](./15-summary-tree.md) — an alternative topics-and-summaries approach (cited passage summaries, a topic taxonomy over them, bottom-up summaries), built beside the primary ones.
+17. [Questions](./17-questions.md) — a hierarchy-only alternative that splits the text by the questions each part answers, with short answers and cited supporting points.
 
 ## Projects
 

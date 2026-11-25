@@ -654,6 +654,56 @@ describe('App topic source switcher', () => {
     await act(async () => root.unmount());
   });
 
+  it('reuses saved questions and their evidence when switching Canvas sources', async () => {
+    state.record = {
+      ...state.record,
+      sentences: ['First sentence.', 'Evidence sentence.'],
+      summariesDisabled: true,
+      question_tree: {
+        version: 1,
+        contentRevision: 'rev-a',
+        status: 'done',
+        updatedAt: Date.now(),
+        metrics: { questions: 1 },
+        chunks: [
+          {
+            sections: [
+              {
+                question: 'What happened?',
+                answer: 'The short answer.',
+                sentences: [1, 2],
+                points: [{ text: 'What we know', sentences: [2] }],
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const buildQuestionTree = vi.fn();
+    const { container, root } = await renderApp('record-1', {
+      recordSource: { buildQuestionTree },
+    });
+    await act(async () => sourceButton(container, 'Questions').click());
+    expect(state.vmInput.record).toMatchObject({
+      summariesDisabled: false,
+      topics: [
+        { name: 'What happened?', sentences: [1, 2] },
+        { name: 'What happened?>What we know', sentences: [2] },
+      ],
+      topic_summary_index: {
+        'What happened?': { runs: [{ text: 'The short answer.' }] },
+        'What happened?>What we know': { runs: [{ text: 'Evidence sentence.' }] },
+      },
+    });
+    expect(state.childProps.rail.topicActions.map((action) => action.id)).toEqual(['to-chat']);
+    expect(sourceButton(container, 'Find questions')).toBeUndefined();
+    await act(async () => sourceButton(container, 'Pipeline').click());
+    expect(state.vmInput.record).toBe(state.record);
+    await act(async () => sourceButton(container, 'Questions').click());
+    expect(buildQuestionTree).not.toHaveBeenCalled();
+    await act(async () => root.unmount());
+  });
+
   it('shows an empty state with a build action when no summary tree exists', async () => {
     const buildSummaryTree = vi.fn(() => Promise.resolve({ ok: true }));
     const { container, root } = await renderApp('record-1', { recordSource: { buildSummaryTree } });

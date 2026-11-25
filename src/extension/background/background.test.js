@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { readRecord, writeRecord, updateRecord } from '../../core/storage/storage.js';
+import {
+  readRecord,
+  writeRecord,
+  updateRecord,
+  readRecordSummaryTreeStates,
+} from '../../core/storage/storage.js';
 import {
   DEFAULT_MAX_PARALLEL_LLM_REQUESTS,
   MAX_PARALLEL_LLM_REQUESTS_KEY,
@@ -49,7 +54,11 @@ vi.mock('./chatCompletionService.js', async (importOriginal) => {
 // `mockRejectedValueOnce(...)` to simulate a storage failure.
 vi.mock('../../core/storage/storage.js', async (importOriginal) => {
   const actual = await importOriginal();
-  return { ...actual, updateRecord: vi.fn(actual.updateRecord) };
+  return {
+    ...actual,
+    updateRecord: vi.fn(actual.updateRecord),
+    readRecordSummaryTreeStates: vi.fn(actual.readRecordSummaryTreeStates),
+  };
 });
 
 const STALE_MS = 10 * 60 * 1000;
@@ -2112,6 +2121,26 @@ describe('background service-worker boundaries', () => {
 
     expect(runPipeline).not.toHaveBeenCalled();
     expect(chromeMock.alarms.get).not.toHaveBeenCalled();
+  });
+
+  it('shares the record tree recovery scan across summary and question tree jobs', async () => {
+    const chromeMock = makeChromeMock();
+    vi.stubGlobal('chrome', chromeMock);
+    await seedRecord(chromeMock, makeRecord('tree-scan-done', { status: 'done' }));
+    readRecordSummaryTreeStates.mockClear();
+
+    const { backgroundReady } = await import('./background.js');
+    await backgroundReady;
+
+    expect(readRecordSummaryTreeStates).toHaveBeenCalledTimes(1);
+    expect(readRecordSummaryTreeStates).toHaveBeenCalledWith(['tree-scan-done']);
+
+    readRecordSummaryTreeStates.mockClear();
+    chromeMock.runtime.onStartup.addListener.mock.calls[0][0]();
+    await flushMicrotasks();
+
+    expect(readRecordSummaryTreeStates).toHaveBeenCalledTimes(1);
+    expect(readRecordSummaryTreeStates).toHaveBeenCalledWith(['tree-scan-done']);
   });
 });
 

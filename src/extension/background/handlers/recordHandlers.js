@@ -36,6 +36,7 @@ import { normalizeCustomInstructions } from '../../../core/pipeline/customInstru
  * @param {function(): Promise<boolean>} deps.getStoredSummariesDisabled
  * @param {{isComplete: Function, isRevisionCurrent: Function}} deps.summaryCheckpoint
  * @param {{start: Function, stop: Function}} [deps.summaryTreeJobs] Summary tree builds.
+ * @param {{start: Function, stop: Function}} [deps.questionTreeJobs] Question tree builds.
  * @param {object} [deps.logger]
  */
 export function createRecordHandlers({
@@ -45,6 +46,7 @@ export function createRecordHandlers({
   getStoredSummariesDisabled,
   summaryCheckpoint,
   summaryTreeJobs = null,
+  questionTreeJobs = null,
   logger = createLogger(),
 }) {
   const {
@@ -80,29 +82,37 @@ export function createRecordHandlers({
     });
   };
 
+  const treeJobPairs = [
+    [summaryTreeJobs, 'summary_tree'],
+    [questionTreeJobs, 'question_tree'],
+  ];
+
   // Claim the next run before cancelling the run this snapshot observed, so a
   // stale claimant neither cancels nor restarts the winning run.
-  // A running summary tree belongs to topics this claim replaces, so stop it
+  // Any running derived tree belongs to topics this claim replaces, so stop it
   // first (cancelling requires the record to still be `done`). `stop` also
   // covers a stored `running` tree with no in-memory job (after a worker
   // restart); the claim re-asserts the cancel in case a late checkpoint write
   // reopened it, so recovery cannot resume it against stale topic boundaries.
   const claimAndRestart = async (key, scope, patch, options) => {
     let claim = patch;
-    if (summaryTreeJobs) {
-      await summaryTreeJobs.stop(key);
+    const activePairs = treeJobPairs.filter(([jobs]) => Boolean(jobs));
+    if (activePairs.length) {
+      for (const [jobs] of activePairs) await jobs.stop(key);
       const latest = await readRecord(key);
-      const tree = latest?.summary_tree;
-      if (tree?.status === SUMMARY_TREE_STATUS.RUNNING && !Object.hasOwn(patch, 'summary_tree')) {
-        claim = {
-          ...patch,
-          summary_tree: {
-            ...tree,
-            status: SUMMARY_TREE_STATUS.CANCELLED,
-            error: 'Stopped.',
-            updatedAt: Date.now(),
-          },
-        };
+      for (const [, field] of activePairs) {
+        const tree = latest?.[field];
+        if (tree?.status === SUMMARY_TREE_STATUS.RUNNING && !Object.hasOwn(patch, field)) {
+          claim = {
+            ...claim,
+            [field]: {
+              ...tree,
+              status: SUMMARY_TREE_STATUS.CANCELLED,
+              error: 'Stopped.',
+              updatedAt: Date.now(),
+            },
+          };
+        }
       }
     }
     const updated = await updateRecord(key, claim, options);
@@ -113,6 +123,35 @@ export function createRecordHandlers({
   };
 
   const requireKey = (msg) => (msg.key ? null : 'missing key');
+
+  const createTreeBuildHandler = (jobs, unavailableError) => ({
+    requiresExtensionPage: false,
+    validate: requireKey,
+    async handle(msg) {
+      if (!jobs) return { ok: false, error: unavailableError };
+      const rec = await requireRecord(msg.key);
+      if (rec.status !== PIPELINE_STATUS.DONE) {
+        return { ok: false, error: 'record is not complete — wait for it to finish first' };
+      }
+      if (!isSummaryCheckpointComplete(rec) || !isSummaryCheckpointRevisionCurrent(rec)) {
+        return {
+          ok: false,
+          error: 'record topic checkpoint is incomplete or stale — reprocess the record first',
+        };
+      }
+      const started = await jobs.start(msg.key, { fresh: msg.fresh === true });
+      return started ? { ok: true } : { ok: true, stale: true };
+    },
+  });
+
+  const createTreeStopHandler = (jobs) => ({
+    requiresExtensionPage: false,
+    validate: requireKey,
+    async handle(msg) {
+      if (!(await jobs?.stop(msg.key))) return { ok: true, stale: true };
+      return { ok: true };
+    },
+  });
 
   return {
     [MSG.submit]: {
@@ -298,34 +337,13 @@ export function createRecordHandlers({
     // Builds the alternative summary tree beside a completed record's topics
     // and summaries. The record stays completed; `fresh` rebuilds instead of
     // resuming saved work.
-    [MSG.buildSummaryTree]: {
-      requiresExtensionPage: false,
-      validate: requireKey,
-      async handle(msg) {
-        if (!summaryTreeJobs) return { ok: false, error: 'summary trees are unavailable' };
-        const rec = await requireRecord(msg.key);
-        if (rec.status !== PIPELINE_STATUS.DONE) {
-          return { ok: false, error: 'record is not complete — wait for it to finish first' };
-        }
-        if (!isSummaryCheckpointComplete(rec) || !isSummaryCheckpointRevisionCurrent(rec)) {
-          return {
-            ok: false,
-            error: 'record topic checkpoint is incomplete or stale — reprocess the record first',
-          };
-        }
-        const started = await summaryTreeJobs.start(msg.key, { fresh: msg.fresh === true });
-        return started ? { ok: true } : { ok: true, stale: true };
-      },
-    },
-
-    [MSG.stopSummaryTree]: {
-      requiresExtensionPage: false,
-      validate: requireKey,
-      async handle(msg) {
-        if (!(await summaryTreeJobs?.stop(msg.key))) return { ok: true, stale: true };
-        return { ok: true };
-      },
-    },
+    [MSG.buildSummaryTree]: createTreeBuildHandler(summaryTreeJobs, 'summary trees are unavailable'),
+    [MSG.stopSummaryTree]: createTreeStopHandler(summaryTreeJobs),
+    [MSG.buildQuestionTree]: createTreeBuildHandler(
+      questionTreeJobs,
+      'question trees are unavailable',
+    ),
+    [MSG.stopQuestionTree]: createTreeStopHandler(questionTreeJobs),
 
     [MSG.cancelRecordProcessing]: {
       requiresExtensionPage: false,
@@ -537,6 +555,7 @@ export function createRecordHandlers({
       async handle(msg) {
         cancelActivePipeline(msg.key);
         await summaryTreeJobs?.stop(msg.key);
+        await questionTreeJobs?.stop(msg.key);
         await deleteRecord(msg.key);
         await pipelineSupervisor.clearPipelineFailuresForKey(msg.key);
         return { ok: true };

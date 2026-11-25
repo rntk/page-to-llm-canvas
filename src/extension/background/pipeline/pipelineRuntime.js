@@ -56,6 +56,7 @@ const logger = createLogger('pipeline');
  * @property {function(string, object): Promise<object>} checkpointTopicSummary
  * @property {function(object): Promise<object>} checkpointSourceSummaryUnit
  * @property {function(object, object=): Promise<object>} saveSummaryTree
+ * @property {function(object, object=): Promise<object>} saveQuestionTree
  * @property {function(string, object, object=): Promise<void>} log
  * @property {function(): Promise<void>} flushLogs
  */
@@ -163,6 +164,26 @@ export function createPipelineRuntime({
       const updated = await updateRecord(
         key,
         { summary_tree: tree },
+        {
+          expectedPipelineRunId: pipelineRunId,
+          expectedStatuses: [PIPELINE_STATUS.DONE],
+        },
+      );
+      if (!updated) throwLostRun();
+      return updated;
+    },
+
+    /**
+     * Saves the question tree beside a completed record's topics.
+     * @param {object} tree `question_tree` snapshot.
+     * @param {object} [options]
+     * @param {boolean} [options.allowAborted] Persist a failure after an abort.
+     */
+    async saveQuestionTree(tree, options = {}) {
+      if (!options.allowAborted) assertActive();
+      const updated = await updateRecord(
+        key,
+        { question_tree: tree },
         {
           expectedPipelineRunId: pipelineRunId,
           expectedStatuses: [PIPELINE_STATUS.DONE],

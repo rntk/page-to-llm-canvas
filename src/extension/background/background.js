@@ -5,6 +5,7 @@ import {
   readRecordSummaryTreeState,
   readRecordSummaryTreeStates,
   cancelRecordSummaryTree,
+  cancelRecordQuestionTree,
   writeRecord,
   updateRecord,
   listRecords,
@@ -69,6 +70,11 @@ import {
   SUMMARY_TREE_STATUS,
   SUMMARY_TREE_VERSION,
 } from '../../shared/runtime/summaryTree.js';
+import {
+  canRecoverQuestionTree,
+  QUESTION_TREE_STATUS,
+  QUESTION_TREE_VERSION,
+} from '../../shared/runtime/questionTree.js';
 import { createLogger } from '../../shared/runtime/log.js';
 import { browserLocalStore } from '../../shared/runtime/localStore.js';
 import { createPipelineSupervisor } from './pipelineSupervisor.js';
@@ -182,72 +188,114 @@ const pipelineFailureBreaker = createPipelineFailureBreaker({
   runtime: runtimeErrors,
 });
 
-const summaryTreeJobs = createSummaryTreeJobs({
-  runSummaryTree: pipelineRunner.runSummaryTree,
-  logger: log.child('summary tree'),
-  alarms,
-  alarmName: 'summary-tree-keepalive',
-  failureBreaker: pipelineFailureBreaker,
+let inFlightRecordTreeStatesScan = null;
+function scanRecordTreeStates() {
+  if (!inFlightRecordTreeStatesScan) {
+    inFlightRecordTreeStatesScan = (async () => {
+      try {
+        const candidates = (await listRecords())
+          .filter((item) => item.status === 'done')
+          .map((item) => item.key);
+        return await readRecordSummaryTreeStates(candidates);
+      } finally {
+        inFlightRecordTreeStatesScan = null;
+      }
+    })();
+  }
+  return inFlightRecordTreeStatesScan;
+}
+
+function createRecordTreeJobs({
+  field,
+  version,
+  status,
+  canRecover,
+  onStop,
+  run,
+  label,
+  alarmName,
+}) {
+  return createSummaryTreeJobs({
+    runSummaryTree: run,
+    logger: log.child(label),
+    label,
+    alarms,
+    alarmName,
+    failureBreaker: pipelineFailureBreaker,
+    onStop,
+    async canRecover(key) {
+      const record = await readRecordSummaryTreeState(key);
+      return record?.status === 'done' && canRecover(record[field], record.contentRevision);
+    },
+    async onFailure(key, error, { signal }) {
+      const record = await readRecord(key);
+      if (record?.status !== 'done' || record[field]?.status !== status.RUNNING) return;
+      await updateRecord(
+        key,
+        {
+          [field]: {
+            ...record[field],
+            status: signal.aborted ? status.CANCELLED : status.ERROR,
+            error: signal.aborted ? 'Stopped.' : String(error?.message || error),
+            updatedAt: Date.now(),
+          },
+        },
+        { expectedPipelineRunId: record.pipelineRunId, expectedStatuses: ['done'] },
+      );
+    },
+    async prepareRun(key, { fresh }) {
+      const record = await readRecord(key);
+      if (record?.status !== 'done') throw new Error('The record must finish processing first.');
+      const updated = await updateRecord(
+        key,
+        {
+          [field]: {
+            ...(!fresh && record[field]?.contentRevision === record.contentRevision
+              ? record[field]
+              : {}),
+            version,
+            backgroundRecovery: true,
+            contentRevision: record.contentRevision,
+            status: status.RUNNING,
+            error: null,
+            updatedAt: Date.now(),
+          },
+        },
+        { expectedPipelineRunId: record.pipelineRunId, expectedStatuses: ['done'] },
+      );
+      if (!updated) throw new Error('The article changed before the tree build started.');
+    },
+    async listRunningKeys() {
+      const states = await scanRecordTreeStates();
+      return states
+        .filter(
+          (record) => record?.status === 'done' && canRecover(record[field], record.contentRevision),
+        )
+        .map((record) => record.key);
+    },
+  });
+}
+
+const summaryTreeJobs = createRecordTreeJobs({
+  field: 'summary_tree',
+  version: SUMMARY_TREE_VERSION,
+  status: SUMMARY_TREE_STATUS,
+  canRecover: canRecoverSummaryTree,
   onStop: cancelRecordSummaryTree,
-  async canRecover(key) {
-    const record = await readRecordSummaryTreeState(key);
-    return (
-      record?.status === 'done' &&
-      canRecoverSummaryTree(record.summary_tree, record.contentRevision)
-    );
-  },
-  async onFailure(key, error, { signal }) {
-    const record = await readRecord(key);
-    if (record?.status !== 'done' || record.summary_tree?.status !== SUMMARY_TREE_STATUS.RUNNING)
-      return;
-    await updateRecord(
-      key,
-      {
-        summary_tree: {
-          ...record.summary_tree,
-          status: signal.aborted ? SUMMARY_TREE_STATUS.CANCELLED : SUMMARY_TREE_STATUS.ERROR,
-          error: signal.aborted ? 'Stopped.' : String(error?.message || error),
-          updatedAt: Date.now(),
-        },
-      },
-      { expectedPipelineRunId: record.pipelineRunId, expectedStatuses: ['done'] },
-    );
-  },
-  async prepareRun(key, { fresh }) {
-    const record = await readRecord(key);
-    if (record?.status !== 'done') throw new Error('The record must finish processing first.');
-    const updated = await updateRecord(
-      key,
-      {
-        summary_tree: {
-          ...(!fresh && record.summary_tree?.contentRevision === record.contentRevision
-            ? record.summary_tree
-            : {}),
-          version: SUMMARY_TREE_VERSION,
-          backgroundRecovery: true,
-          contentRevision: record.contentRevision,
-          status: SUMMARY_TREE_STATUS.RUNNING,
-          error: null,
-          updatedAt: Date.now(),
-        },
-      },
-      { expectedPipelineRunId: record.pipelineRunId, expectedStatuses: ['done'] },
-    );
-    if (!updated) throw new Error('The article changed before the tree build started.');
-  },
-  async listRunningKeys() {
-    const candidates = (await listRecords())
-      .filter((item) => item.status === 'done')
-      .map((item) => item.key);
-    const states = await readRecordSummaryTreeStates(candidates);
-    return states
-      .filter(
-        (record) =>
-          record?.status === 'done' &&
-          canRecoverSummaryTree(record.summary_tree, record.contentRevision),
-      )
-      .map((record) => record.key);
-  },
+  run: pipelineRunner.runSummaryTree,
+  label: 'summary tree',
+  alarmName: 'summary-tree-keepalive',
+});
+
+const questionTreeJobs = createRecordTreeJobs({
+  field: 'question_tree',
+  version: QUESTION_TREE_VERSION,
+  status: QUESTION_TREE_STATUS,
+  canRecover: canRecoverQuestionTree,
+  onStop: cancelRecordQuestionTree,
+  run: pipelineRunner.runQuestionTree,
+  label: 'question tree',
+  alarmName: 'question-tree-keepalive',
 });
 
 function isExtensionPageSender(sender) {
@@ -408,6 +456,7 @@ const MESSAGE_HANDLERS = {
       isRevisionCurrent: isSummaryCheckpointRevisionCurrent,
     },
     summaryTreeJobs,
+    questionTreeJobs,
     logger: log,
   }),
   ...createChatHandlers({
@@ -480,7 +529,7 @@ installBackgroundRuntime({
   chromeStorage: chrome.storage,
   dispatchMessage,
   pipelineSupervisor,
-  treeJobs: [summaryTreeJobs, topicTreeService],
+  treeJobs: [summaryTreeJobs, questionTreeJobs, topicTreeService],
   scheduleActionProgressIconRefresh,
   // Defer access to backgroundReady until after its declaration initializes.
   bootstrapReady: () => backgroundReady,
@@ -517,7 +566,11 @@ export const backgroundReady = (async () => {
   } catch (err) {
     log.warn('cold-start resume failed:', err);
   }
-  await Promise.all([summaryTreeJobs.resumeInFlight(), topicTreeService.resumeInFlight()]);
+  await Promise.all([
+    summaryTreeJobs.resumeInFlight(),
+    questionTreeJobs.resumeInFlight(),
+    topicTreeService.resumeInFlight(),
+  ]);
 })();
 
 void refreshActionProgressIcon();

@@ -63,8 +63,8 @@ export const SOURCE_SUMMARY_UNIT_REVISION_MISMATCH = Object.freeze({
 // Partition by mutation unit: static content, final output, checkpoints, and
 // diagnostics have separate documents; each summary has its own key.
 const CONTENT_FIELDS = ['html', 'capturedText', 'text', 'sentences', 'topics'];
-// `summary_tree` is the alternative summary-tree approach, kept beside the index.
-const SUMMARY_OUTPUT_FIELDS = ['topic_summary_index', 'summary_tree'];
+// `summary_tree` and `question_tree` are alternative views kept beside the index.
+const SUMMARY_OUTPUT_FIELDS = ['topic_summary_index', 'summary_tree', 'question_tree'];
 const SPECIAL_FIELDS = [
   ...CONTENT_FIELDS,
   ...SUMMARY_OUTPUT_FIELDS,
@@ -341,31 +341,26 @@ export async function readRecordSummaryTreeStates(keys) {
       contentRevision: meta.contentRevision,
       pipelineRunId: meta.pipelineRunId,
       summary_tree: items[summaryOutputStorageKey(key)]?.summary_tree,
+      question_tree: items[summaryOutputStorageKey(key)]?.question_tree,
     };
   });
 }
 
-/**
- * Cancels a saved running tree even when no worker owns it in memory.
- * Both queues serialize the status check with replacement, deletion and saves.
- * @param {string} key Record key.
- * @returns {Promise<boolean>} Whether a running tree was cancelled.
- */
-export async function cancelRecordSummaryTree(key) {
+function cancelRunningTree(key, field) {
   return queuedUpdate(MUTATION_QUEUE_KEY, () =>
     queuedRecordUpdate(key, async () => {
       const meta = await loadMetaForWrite(key);
       if (!meta || meta.status !== 'done') return false;
       const outputKey = summaryOutputStorageKey(key);
       const output = (await getLocal(outputKey))[outputKey];
-      const tree = output?.summary_tree;
+      const tree = output?.[field];
       if (tree?.status !== SUMMARY_TREE_STATUS.RUNNING) return false;
       const updatedAt = Date.now();
       await setLocal({
         [metaStorageKey(key)]: { ...meta, updatedAt },
         [outputKey]: {
           ...output,
-          summary_tree: {
+          [field]: {
             ...tree,
             status: SUMMARY_TREE_STATUS.CANCELLED,
             error: 'Stopped.',
@@ -376,6 +371,25 @@ export async function cancelRecordSummaryTree(key) {
       return true;
     }),
   );
+}
+
+/**
+ * Cancels a saved running summary tree even when no worker owns it in memory.
+ * Both queues serialize the status check with replacement, deletion and saves.
+ * @param {string} key Record key.
+ * @returns {Promise<boolean>} Whether a running tree was cancelled.
+ */
+export function cancelRecordSummaryTree(key) {
+  return cancelRunningTree(key, 'summary_tree');
+}
+
+/**
+ * Cancels a saved running question tree even when no worker owns it in memory.
+ * @param {string} key Record key.
+ * @returns {Promise<boolean>} Whether a running tree was cancelled.
+ */
+export function cancelRecordQuestionTree(key) {
+  return cancelRunningTree(key, 'question_tree');
 }
 
 export async function readRecordView(key) {
@@ -477,15 +491,17 @@ export async function writeRecord(rec, options = {}) {
       RECORD_PAYLOAD_SCHEMAS.forEach(({ fields, storageKey }) => {
         documents[storageKey(rec.key)] = pickFields(rec, fields);
       });
-      // The tree is read only against the record's current revision. Like the
+      // Trees are read only against the record's current revision. Like the
       // final summaries, a tree written with the record belongs to this write.
       const outputDoc = documents[summaryOutputStorageKey(rec.key)];
-      if (
-        outputDoc?.summary_tree &&
-        typeof outputDoc.summary_tree === 'object' &&
-        outputDoc.summary_tree.contentRevision !== contentRevision
-      ) {
-        outputDoc.summary_tree = { ...outputDoc.summary_tree, contentRevision };
+      for (const field of ['summary_tree', 'question_tree']) {
+        if (
+          outputDoc?.[field] &&
+          typeof outputDoc[field] === 'object' &&
+          outputDoc[field].contentRevision !== contentRevision
+        ) {
+          outputDoc[field] = { ...outputDoc[field], contentRevision };
+        }
       }
       const priorKeys = [
         ...new Set([...Object.keys(priorDocs || {}), ...Object.keys(existingWorkDocuments)]),
