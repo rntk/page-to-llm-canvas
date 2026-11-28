@@ -78,6 +78,26 @@ describe('durable summary tree jobs', () => {
     expect(alarms.clear).toHaveBeenCalledWith('tree-recovery');
   });
 
+  it('reports active builds and notifies when one starts or settles', async () => {
+    const runs = [];
+    const onActiveChange = vi.fn();
+    const jobs = createSummaryTreeJobs({
+      logger: { error: vi.fn() },
+      onActiveChange,
+      runSummaryTree: () =>
+        new Promise((resolve) => {
+          runs.push(resolve);
+        }),
+    });
+    expect(jobs.activeCount()).toBe(0);
+    expect(await jobs.start('article')).toBe(true);
+    expect(jobs.activeCount()).toBe(1);
+    expect(onActiveChange).toHaveBeenCalledTimes(1);
+    runs[0]();
+    await vi.waitFor(() => expect(jobs.activeCount()).toBe(0));
+    expect(onActiveChange).toHaveBeenCalledTimes(2);
+  });
+
   it('starts a new run immediately after stop once the aborted run settles', async () => {
     const { runs, makeJobs } = fixture();
     const jobs = makeJobs();

@@ -100,6 +100,9 @@ const log = createLogger();
 const actionIconController = createActionIconController(
   createActionIconDependencies({
     records: listRecords,
+    // Tree builds run on already finished records, so count their jobs too.
+    // Read lazily: both registries are declared further below.
+    backgroundJobCount: () => summaryTreeJobs.activeCount() + topicTreeService.activeCount(),
     actionApi: chrome.action,
     runtimeApi: chrome.runtime,
     globalScope: globalThis,
@@ -188,6 +191,7 @@ const summaryTreeJobs = createSummaryTreeJobs({
   alarms,
   alarmName: 'summary-tree-keepalive',
   failureBreaker: pipelineFailureBreaker,
+  onActiveChange: () => scheduleActionProgressIconRefresh(),
   onStop: cancelRecordSummaryTree,
   async canRecover(key) {
     const record = await readRecordSummaryTreeState(key);
@@ -312,6 +316,7 @@ const topicTreeService = createProjectTopicTreeService({
   logger: log.child('project topics'),
   alarms,
   failureBreaker: pipelineFailureBreaker,
+  onActiveChange: () => scheduleActionProgressIconRefresh(),
 });
 
 const pageChatService = createProjectPageChatService({

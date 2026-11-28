@@ -36,6 +36,7 @@ export function createProjectTopicTreeService({
   logger,
   alarms,
   failureBreaker,
+  onActiveChange,
   now = Date.now,
   createId = () => crypto.randomUUID(),
 }) {
@@ -218,6 +219,7 @@ export function createProjectTopicTreeService({
     alarms,
     alarmName: 'project-topic-tree-keepalive',
     failureBreaker,
+    onActiveChange,
     async onStop(projectId) {
       let cancelled = false;
       await updateProject(projectId, (project) => {
@@ -284,6 +286,7 @@ export function createProjectTopicTreeService({
   return {
     resumeInFlight: jobs.resumeInFlight,
     handleKeepAliveAlarm: jobs.handleKeepAliveAlarm,
+    activeCount: jobs.activeCount,
     async getView(projectId, providedView) {
       const source = await inputs(projectId, providedView);
       const saved = source.view.project.topic_tree;

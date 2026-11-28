@@ -82,6 +82,24 @@ describe('action icon progress rendering', () => {
     expect(state.ratio).toBeLessThan(1);
   });
 
+  it('shows background tree builds on finished records as in progress', async () => {
+    vi.stubGlobal('chrome', makeChromeMock());
+    const { summarizeProcessingState } = await import('./actionIcon.js');
+
+    const treeOnly = summarizeProcessingState([{ status: 'done' }], 1);
+    expect(treeOnly.active).toBe(true);
+    expect(treeOnly.count).toBe(1);
+    expect(treeOnly.ratio).toBeGreaterThan(0);
+    expect(treeOnly.ratio).toBeLessThan(1);
+
+    // Tree builds add to the badge count without diluting determinate progress.
+    const mixed = summarizeProcessingState(
+      [{ status: 'summarizing', progress: { stage: 'summarizing_topics', done: 2, total: 4 } }],
+      2,
+    );
+    expect(mixed).toEqual({ active: true, count: 3, ratio: 0.5 });
+  });
+
   it('summarizes determinate action icon progress across in-flight records', async () => {
     const chromeMock = makeChromeMock();
     vi.stubGlobal('chrome', chromeMock);

@@ -14,6 +14,8 @@
  * @param {string} [deps.alarmName] A separate alarm per job registry.
  * @param {{getAll: Function, recordFailure: Function, clear: Function}} [deps.failureBreaker]
  *   The pipeline's session breaker, so automatic recovery cannot rerun forever.
+ * @param {Function} [deps.onActiveChange] Called whenever a build starts or settles,
+ *   e.g. so the toolbar icon can show tree builds as in progress.
  */
 export function createSummaryTreeJobs({
   runSummaryTree,
@@ -27,8 +29,21 @@ export function createSummaryTreeJobs({
   alarms,
   alarmName,
   failureBreaker = null,
+  onActiveChange = () => {},
 }) {
   const jobs = new Map();
+  function notifyActiveChange() {
+    try {
+      onActiveChange();
+    } catch (error) {
+      logger.error(`${label} active-change listener failed:`, error);
+    }
+  }
+  function releaseJob(key, job) {
+    if (jobs.get(key) !== job) return;
+    jobs.delete(key);
+    notifyActiveChange();
+  }
   const breaker = failureBreaker || {
     getAll: async () => ({}),
     recordFailure: async () => null,
@@ -118,12 +133,13 @@ export function createSummaryTreeJobs({
         const controller = new AbortController();
         const job = { controller };
         jobs.set(key, job);
+        notifyActiveChange();
         try {
           await armRecovery();
           if (recover) {
             const open = await readOpenBreakers();
             if (!open || open.has(breakerId(key)) || !(await canRecover(key))) {
-              jobs.delete(key);
+              releaseJob(key, job);
               return false;
             }
             // Fail closed: prove the checkpoint is still writable before any
@@ -133,7 +149,7 @@ export function createSummaryTreeJobs({
             } catch (error) {
               logger.error(`${label} recovery claim failed for`, key, error);
               await noteRecoveryFailure(key, error);
-              jobs.delete(key);
+              releaseJob(key, job);
               return false;
             }
           } else {
@@ -149,13 +165,11 @@ export function createSummaryTreeJobs({
             })
             .catch((error) => logger.error(`failed to save ${label} failure:`, key, error))
             .then(() => settleRecovery(key))
-            .finally(() => {
-              if (jobs.get(key) === job) jobs.delete(key);
-            })
+            .finally(() => releaseJob(key, job))
             .catch(() => {});
           return true;
         } catch (error) {
-          if (jobs.get(key) === job) jobs.delete(key);
+          releaseJob(key, job);
           throw error;
         }
       });
@@ -176,6 +190,11 @@ export function createSummaryTreeJobs({
 
     isActive(key) {
       return jobs.has(key);
+    },
+
+    /** Number of builds this worker currently owns (running or settling). */
+    activeCount() {
+      return jobs.size;
     },
 
     /** Recover even recent checkpoints: in-memory ownership prevents duplicates. */

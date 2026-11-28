@@ -16,9 +16,15 @@ const ACTION_ICON_REFRESH_DEBOUNCE_MS = 200;
 const ACTION_ICON_FAILURE_COLOR = '#dc2626';
 export const ACTION_ICON_FAILURE_FLASH_MS = 2500;
 
-export function summarizeProcessingState(records) {
+/**
+ * @param {object[]} records
+ * @param {number} [backgroundJobCount] Tree builds on finished records (summary
+ *   tree, project topic tree). They count toward the badge as indeterminate work.
+ */
+export function summarizeProcessingState(records, backgroundJobCount = 0) {
   const inFlight = (Array.isArray(records) ? records : []).filter(isInFlightRecord);
-  if (inFlight.length === 0) {
+  const extra = Number.isFinite(backgroundJobCount) ? Math.max(0, backgroundJobCount) : 0;
+  if (inFlight.length === 0 && extra === 0) {
     return { active: false, count: 0, ratio: 0 };
   }
 
@@ -41,7 +47,7 @@ export function summarizeProcessingState(records) {
       ? Math.max(ACTION_ICON_MIN_DETERMINATE_RATIO, Math.min(done / total, 1))
       : ACTION_ICON_INDETERMINATE_RATIO;
 
-  return { active: true, count: inFlight.length, ratio };
+  return { active: true, count: inFlight.length + extra, ratio };
 }
 
 /**
@@ -49,6 +55,7 @@ export function summarizeProcessingState(records) {
  *
  * @param {object} dependencies
  * @param {function(): Promise<object[]>} dependencies.records
+ * @param {function(): number} [dependencies.backgroundJobCount] Active tree builds.
  * @param {object} dependencies.actionApi
  * @param {{paths: Record<number, string>, loadBitmap: function(string): Promise<object>}} dependencies.assets
  * @param {function(number, number): object|null} dependencies.canvasFactory
@@ -57,6 +64,7 @@ export function summarizeProcessingState(records) {
  */
 export function createActionIconController({
   records,
+  backgroundJobCount = () => 0,
   actionApi,
   assets,
   canvasFactory,
@@ -162,7 +170,13 @@ export function createActionIconController({
     try {
       const currentRecords = await records();
       if (currentUpdateId !== updateId) return;
-      await setProgressIcon(summarizeProcessingState(currentRecords), currentUpdateId);
+      let jobCount = 0;
+      try {
+        jobCount = Number(backgroundJobCount()) || 0;
+      } catch (err) {
+        logger.warn('background job count failed:', err);
+      }
+      await setProgressIcon(summarizeProcessingState(currentRecords, jobCount), currentUpdateId);
     } catch (err) {
       logger.warn('update failed:', err);
     }
@@ -220,6 +234,7 @@ export function createActionIconController({
  *
  * @param {object} options
  * @param {function(): Promise<object[]>} options.records
+ * @param {function(): number} [options.backgroundJobCount]
  * @param {object} options.actionApi
  * @param {object} options.runtimeApi
  * @param {object} options.globalScope
@@ -228,6 +243,7 @@ export function createActionIconController({
  */
 export function createActionIconDependencies({
   records,
+  backgroundJobCount,
   actionApi,
   runtimeApi,
   globalScope,
@@ -235,6 +251,7 @@ export function createActionIconDependencies({
 }) {
   return {
     records,
+    backgroundJobCount,
     actionApi,
     assets: {
       paths: ACTION_ICON_PATHS,
